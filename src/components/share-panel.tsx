@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import type { FileDetails } from '@/lib/types';
-import { Check, Clock, Copy, File as FileIcon, X } from 'lucide-react';
+import type { FileDetails, Permission } from '@/lib/types';
+import { Check, Clock, Copy, Download, Edit, Eye, File as FileIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import AiPermissionSuggester from './ai-permission-suggester';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+
 
 interface SharePanelProps {
   fileDetails: FileDetails;
@@ -22,6 +23,7 @@ interface SharePanelProps {
 export default function SharePanel({ fileDetails, uploadProgress, isUploading, onReset }: SharePanelProps) {
   const [shareLink, setShareLink] = useState('');
   const [hasCopied, setHasCopied] = useState(false);
+  const [selectedPermission, setSelectedPermission] = useState<Permission>("View Only");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -48,6 +50,14 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
     toast({ title: 'Success', description: 'Link copied to clipboard!' });
     setTimeout(() => setHasCopied(false), 2000);
   };
+
+  const permissionIcons: Record<Permission, React.ReactNode> = {
+    "View Only": <Eye className="h-4 w-4 text-muted-foreground" />,
+    "Download": <Download className="h-4 w-4 text-muted-foreground" />,
+    "Editor": <Edit className="h-4 w-4 text-muted-foreground" />,
+  };
+  
+  const permissions: Permission[] = ["View Only", "Download", "Editor"];
 
   return (
     <Card className="w-full max-w-lg shadow-lg animate-in fade-in-0 zoom-in-95">
@@ -111,8 +121,29 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
                 </div>
             </div>
             
-            <AiPermissionSuggester fileName={fileDetails.name} />
-
+            <div className="space-y-4 rounded-lg border p-4 bg-secondary/30">
+              <h3 className="font-medium text-foreground">Manage Access</h3>
+              <RadioGroup 
+                  value={selectedPermission}
+                  onValueChange={(value: Permission) => setSelectedPermission(value)}
+                  className="space-y-1 pt-2"
+              >
+                  <Label>Access Level</Label>
+                  {permissions.map((p) => (
+                      <Label 
+                          key={p} 
+                          htmlFor={p} 
+                          className="flex items-center space-x-3 p-3 rounded-md border has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors cursor-pointer"
+                      >
+                          <RadioGroupItem value={p} id={p} />
+                          <div className="flex items-center gap-2 text-sm">
+                              {permissionIcons[p]}
+                              <span className="font-medium">{p}</span>
+                          </div>
+                      </Label>
+                  ))}
+              </RadioGroup>
+            </div>
           </div>
         )}
       </CardContent>
