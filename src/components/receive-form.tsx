@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -15,7 +16,7 @@ export default function ReceiveForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (code.length !== 5) {
       toast({
@@ -27,8 +28,10 @@ export default function ReceiveForm() {
     }
 
     setIsLoading(true);
-    // Directly redirect to the URL with the code the user entered.
-    // The download page will handle the server-side reverse lookup.
+
+    // The user enters the obfuscated code. We directly navigate to the
+    // download page with this code. The download page will use a secure
+    // API route to reverse the code and find the session.
     router.push(`/s/${code.toLowerCase()}`);
   };
 
@@ -46,7 +49,7 @@ export default function ReceiveForm() {
                     id="share-code"
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
-                    placeholder="a1b2c"
+                    placeholder="z9y1a"
                     maxLength={5}
                     className="text-2xl h-14 text-center tracking-[0.3em] font-mono"
                     disabled={isLoading}

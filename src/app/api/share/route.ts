@@ -33,6 +33,7 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !data) {
+      console.error('Share code lookup error:', error);
       return NextResponse.json({ message: 'Share code not found or has expired.' }, { status: 404 });
     }
     

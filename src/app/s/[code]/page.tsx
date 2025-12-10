@@ -85,7 +85,7 @@ export default function DownloadPage() {
     }, 3000);
 
     peer.on('signal', async (signalData) => {
-      if (!shareIdRef.current || (signalData as any).renegotiate) return;
+      if (!shareIdRef.current || (signalData as any).renegotiate || (signalData as any).candidate) return;
       await supabase
         .from('fileshare')
         .update({ p2p_answer: JSON.stringify(signalData) })
@@ -379,5 +379,3 @@ export default function DownloadPage() {
     </div>
   );
 }
-
-    
