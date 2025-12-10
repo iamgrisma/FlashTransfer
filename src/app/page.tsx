@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
 import ReceiveForm from '@/components/receive-form';
@@ -18,11 +18,14 @@ export default function Home() {
   const [transferProgress, setTransferProgress] = useState(0);
   const [shareLink, setShareLink] = useState('');
   const [shortCode, setShortCode] = useState('');
-  const [peer, setPeer] = useState<Peer.Instance | null>(null);
+  
+  const peerRef = useRef<Peer.Instance | null>(null);
+  const fileRef = useRef<File | null>(null);
   const { toast } = useToast();
 
 
   const handleFileSelect = (file: File) => {
+    fileRef.current = file;
     const fileInfo = {
       name: file.name,
       size: file.size,
@@ -31,85 +34,94 @@ export default function Home() {
     setFileDetails(fileInfo);
     setIsConnecting(true);
 
-    const supabase = createClient();
+    // Destroy any existing peer before creating a new one
+    if (peerRef.current) {
+      peerRef.current.destroy();
+    }
+
     const newPeer = new Peer({ initiator: true, trickle: false });
-    setPeer(newPeer);
-    let shareId: string;
+    peerRef.current = newPeer;
 
     const generateShortCode = () => {
       return Math.floor(100000 + Math.random() * 900000).toString();
-    }
+    };
 
     newPeer.on('signal', async (offer) => {
-      // FIX: Ensure the offer is valid before processing
-      if (newPeer.initiator && offer && offer.type === 'offer') {
-        const generatedCode = generateShortCode();
-        setShortCode(generatedCode);
-
-        // Set expiration for 1 hour from now
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-
-        const { data, error } = await supabase
-          .from('fileshare')
-          .insert([{ p2p_offer: JSON.stringify(offer), short_code: generatedCode, expires_at: expiresAt }])
-          .select('id')
-          .single();
-
-        if (error || !data) {
-          console.error('Error creating share session:', error);
-           toast({
-            variant: 'destructive',
-            title: 'Failed to Create Share',
-            description: 'Could not create a new share session. Please try again.',
-          });
-          setIsConnecting(false);
-          return;
-        }
-        shareId = data.id;
-        setShareLink(`${window.location.origin}/${shareId}`);
-
-        const channel = supabase
-          .channel(`fileshare-${shareId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'fileshare',
-              filter: `id=eq.${shareId}`,
-            },
-            (payload) => {
-              const { p2p_answer } = payload.new as { p2p_answer: string };
-              if (p2p_answer && !newPeer.destroyed) {
-                newPeer.signal(JSON.parse(p2p_answer));
-                channel.unsubscribe();
-              }
-            }
-          )
-          .subscribe();
+      if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer') {
+        return;
       }
+      
+      const supabase = createClient();
+      const generatedCode = generateShortCode();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from('fileshare')
+        .insert([{ p2p_offer: JSON.stringify(offer), short_code: generatedCode, expires_at: expiresAt }])
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        console.error('Error creating share session:', error);
+         toast({
+          variant: 'destructive',
+          title: 'Failed to Create Share',
+          description: 'Could not create a new share session. Please try again.',
+        });
+        setIsConnecting(false);
+        return;
+      }
+
+      const shareId = data.id;
+      setShareLink(`${window.location.origin}/${shareId}`);
+      setShortCode(generatedCode);
+
+      const channel = supabase
+        .channel(`fileshare-${shareId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'fileshare',
+            filter: `id=eq.${shareId}`,
+          },
+          (payload) => {
+            const { p2p_answer } = payload.new as { p2p_answer: string };
+            if (p2p_answer && !newPeer.destroyed) {
+              newPeer.signal(JSON.parse(p2p_answer));
+              channel.unsubscribe();
+            }
+          }
+        )
+        .subscribe();
     });
 
     newPeer.on('connect', () => {
       console.log('Peer connected!');
       setIsConnecting(false);
 
+      if (!fileRef.current) return;
+      
       newPeer.send(JSON.stringify({ type: 'fileDetails', payload: fileInfo }));
       
       const chunkSize = 64 * 1024;
       let offset = 0;
 
       const readSlice = () => {
-        const slice = file.slice(offset, offset + chunkSize);
+        if (!fileRef.current) return;
+        const slice = fileRef.current.slice(offset, offset + chunkSize);
         const reader = new FileReader();
         reader.onload = (e) => {
           if (e.target?.result && !newPeer.destroyed) {
             try {
               newPeer.send(e.target.result as ArrayBuffer);
               offset += (e.target.result as ArrayBuffer).byteLength;
-              setTransferProgress(Math.min((offset / file.size) * 100, 100));
+              if(fileRef.current) {
+                setTransferProgress(Math.min((offset / fileRef.current.size) * 100, 100));
+              }
 
-              if (offset < file.size) {
+              if (fileRef.current && offset < fileRef.current.size) {
                   readSlice();
               } else {
                 console.log('File sent');
@@ -134,13 +146,18 @@ export default function Home() {
 
     newPeer.on('error', (err) => {
       console.error('Peer error', err);
-      handleReset();
+      if (!newPeer.destroyed) {
+        handleReset();
+      }
     });
   };
 
   const handleReset = () => {
-    peer?.destroy();
-    setPeer(null);
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+    fileRef.current = null;
     setFileDetails(null);
     setIsConnecting(false);
     setTransferProgress(0);
