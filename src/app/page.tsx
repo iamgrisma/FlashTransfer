@@ -89,7 +89,11 @@ export default function Home() {
           (payload) => {
             const { p2p_answer } = payload.new as { p2p_answer: string };
             if (p2p_answer && !newPeer.destroyed) {
-              newPeer.signal(JSON.parse(p2p_answer));
+              try {
+                newPeer.signal(JSON.parse(p2p_answer));
+              } catch (err) {
+                 console.error("Failed to apply answer signal", err);
+              }
               channel.unsubscribe();
             }
           }
@@ -101,34 +105,38 @@ export default function Home() {
       console.log('Peer connected!');
       setIsConnecting(false);
 
-      if (!fileRef.current) return;
+      if (!fileRef.current || !fileInfo) return;
       
       newPeer.send(JSON.stringify({ type: 'fileDetails', payload: fileInfo }));
       
-      const chunkSize = 64 * 1024;
+      const chunkSize = 64 * 1024; // 64KB
       let offset = 0;
 
       const readSlice = () => {
         if (!fileRef.current) return;
         const slice = fileRef.current.slice(offset, offset + chunkSize);
         const reader = new FileReader();
+        
         reader.onload = (e) => {
           if (e.target?.result && !newPeer.destroyed) {
             try {
               newPeer.send(e.target.result as ArrayBuffer);
               offset += (e.target.result as ArrayBuffer).byteLength;
+              
               if(fileRef.current) {
-                setTransferProgress(Math.min((offset / fileRef.current.size) * 100, 100));
+                const progress = Math.min((offset / fileRef.current.size) * 100, 100);
+                setTransferProgress(progress);
               }
 
               if (fileRef.current && offset < fileRef.current.size) {
                   readSlice();
-              } else {
-                console.log('File sent');
+              } else if (fileRef.current && offset >= fileRef.current.size) {
+                console.log('File sent completely');
                 newPeer.send(JSON.stringify({ type: 'transferComplete' }));
               }
             } catch(err) {
               console.error("Error sending file chunk:", err);
+              toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
               handleReset();
             }
           }
@@ -147,6 +155,7 @@ export default function Home() {
     newPeer.on('error', (err) => {
       console.error('Peer error', err);
       if (!newPeer.destroyed) {
+        toast({ variant: 'destructive', title: 'Connection Error', description: 'An unexpected connection error occurred.'});
         handleReset();
       }
     });
