@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import { createClient } from '@/lib/supabase';
 
 export default function ReceiveForm() {
   const [code, setCode] = useState('');
@@ -31,18 +30,26 @@ export default function ReceiveForm() {
     setIsLoading(true);
 
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from('fileshare')
-        .select('obfuscated_code')
-        .eq('short_code', code)
-        .single();
+      const response = await fetch('/api/share', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ shortCode: code }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Share code not found or expired.');
+      }
+
+      const { obfuscatedCode } = await response.json();
       
-      if (error || !data) {
-        throw new Error('Share code not found or expired.');
+      if (!obfuscatedCode) {
+        throw new Error('Invalid response from server.');
       }
       
-      router.push(`/s/${data.obfuscated_code}`);
+      router.push(`/s/${obfuscatedCode}`);
 
     } catch (error: any) {
       toast({
@@ -75,7 +82,7 @@ export default function ReceiveForm() {
                     autoComplete="off"
                 />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading || code.length !== 5}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Join
                 </Button>
