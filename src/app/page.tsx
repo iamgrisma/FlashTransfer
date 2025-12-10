@@ -10,6 +10,7 @@ import type { FileDetails } from '@/lib/types';
 import { createClient } from '@/lib/supabase';
 import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from '@/hooks/use-toast';
 
 export default function Home() {
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
@@ -18,6 +19,7 @@ export default function Home() {
   const [shareLink, setShareLink] = useState('');
   const [shortCode, setShortCode] = useState('');
   const [peer, setPeer] = useState<Peer.Instance | null>(null);
+  const { toast } = useToast();
 
 
   const handleFileSelect = (file: File) => {
@@ -54,6 +56,11 @@ export default function Home() {
 
         if (error || !data) {
           console.error('Error creating share session:', error);
+           toast({
+            variant: 'destructive',
+            title: 'Failed to Create Share',
+            description: 'Could not create a new share session in the database. Please check your Supabase RLS policies for the `fileshare` table and ensure inserts are allowed.',
+          });
           setIsConnecting(false);
           return;
         }
