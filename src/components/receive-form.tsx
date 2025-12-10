@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import { obfuscateCode } from '@/lib/code';
+import { createClient } from '@/lib/supabase';
 
 export default function ReceiveForm() {
   const [code, setCode] = useState('');
@@ -17,7 +17,7 @@ export default function ReceiveForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (code.length !== 5) {
       toast({
@@ -31,14 +31,24 @@ export default function ReceiveForm() {
     setIsLoading(true);
 
     try {
-      // Obfuscate the code on the client-side to generate the URL path
-      const obfuscatedCode = obfuscateCode(code);
-      router.push(`/s/${obfuscatedCode}`);
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('fileshare')
+        .select('obfuscated_code')
+        .eq('short_code', code)
+        .single();
+      
+      if (error || !data) {
+        throw new Error('Share code not found or expired.');
+      }
+      
+      router.push(`/s/${data.obfuscated_code}`);
+
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Could not generate a valid share link from the code.',
+        description: error.message || 'Could not find a share session with that code.',
       });
       setIsLoading(false);
     }

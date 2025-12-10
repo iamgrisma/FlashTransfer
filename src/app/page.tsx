@@ -38,7 +38,6 @@ export default function Home() {
     peerRef.current = newPeer;
     
     newPeer.on('signal', async (offer) => {
-      // Ensure we only process valid 'offer' type signals
       if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer' || !offer.sdp) {
           return;
       }
@@ -53,7 +52,7 @@ export default function Home() {
         .insert([{ 
             p2p_offer: JSON.stringify(offer), 
             short_code: newShortCode,
-            obfuscated_code: newObfuscatedCode, // This will be used by the receiver page to find the offer
+            obfuscated_code: newObfuscatedCode,
             expires_at: expiresAt 
         }])
         .select('id')
@@ -275,5 +274,7 @@ export default function Home() {
     </div>
   );
 }
+
+    
 
     
