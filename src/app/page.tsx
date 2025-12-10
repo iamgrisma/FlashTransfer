@@ -11,7 +11,6 @@ import { createClient } from '@/lib/supabase';
 import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
 export default function Home() {
@@ -206,7 +205,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 selection:bg-primary/20">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 pt-24 selection:bg-primary/20">
       <main className="w-full flex-1 flex flex-col items-center justify-center container mx-auto">
         {files.length > 0 ? (
           <SharePanel
