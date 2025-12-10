@@ -53,7 +53,7 @@ export default function Home() {
         .insert([{ 
             p2p_offer: JSON.stringify(offer), 
             short_code: newShortCode,
-            obfuscated_code: newObfuscatedCode,
+            obfuscated_code: newObfuscatedCode, // This will be used by the receiver page to find the offer
             expires_at: expiresAt 
         }])
         .select('id')
@@ -64,7 +64,7 @@ export default function Home() {
          toast({
           variant: 'destructive',
           title: 'Failed to Create Share',
-          description: `Could not create a new share session. Please ensure your 'fileshare' table is configured correctly. Error: ${error?.message || 'Unknown error'}`,
+          description: `Could not create a new share session. ${error?.message || 'Please check your network and database settings.'}`,
         });
         setIsConnecting(false);
         return;
@@ -275,3 +275,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

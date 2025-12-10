@@ -3,22 +3,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { obfuscateCode } from '@/lib/code';
 
 export default function ReceiveForm() {
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
 
-  const handleJoin = async (e: React.FormEvent) => {
+  const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (code.length !== 5) {
       toast({
@@ -32,26 +31,14 @@ export default function ReceiveForm() {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from('fileshare')
-        .select('obfuscated_code')
-        .eq('short_code', code) // Case-sensitive lookup
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (error || !data || !data.obfuscated_code) {
-        throw new Error('Share session not found or has expired.');
-      }
-      
-      // Use the retrieved obfuscated_code for redirection
-      router.push(`/s/${data.obfuscated_code}`);
-
+      // Obfuscate the code on the client-side to generate the URL path
+      const obfuscatedCode = obfuscateCode(code);
+      router.push(`/s/${obfuscatedCode}`);
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'Could not find the share session.',
+        description: 'Could not generate a valid share link from the code.',
       });
       setIsLoading(false);
     }
@@ -87,3 +74,5 @@ export default function ReceiveForm() {
     </Card>
   );
 }
+
+    
