@@ -35,7 +35,7 @@ export default function ReceiveForm() {
       const { data, error } = await supabase
         .from('fileshare')
         .select('obfuscated_code')
-        .eq('short_code', code.toLowerCase())
+        .eq('short_code', code)
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
