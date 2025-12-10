@@ -2,22 +2,23 @@
 "use client";
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
-import { Send, Link as LinkIcon } from 'lucide-react';
+import ReceiveForm from '@/components/receive-form';
+import { Send, Download } from 'lucide-react';
 import type { FileDetails } from '@/lib/types';
 import { createClient } from '@/lib/supabase';
 import Peer from 'simple-peer';
-import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [transferProgress, setTransferProgress] = useState(0);
   const [shareLink, setShareLink] = useState('');
   const [shortCode, setShortCode] = useState('');
-  const router = useRouter();
+  const [peer, setPeer] = useState<Peer.Instance | null>(null);
+
 
   const handleFileSelect = (file: File) => {
     const fileInfo = {
@@ -26,34 +27,34 @@ export default function Home() {
       type: file.type,
     };
     setFileDetails(fileInfo);
-    setIsUploading(true);
+    setIsConnecting(true);
 
     const supabase = createClient();
-    const peer = new Peer({ initiator: true, trickle: false });
+    const newPeer = new Peer({ initiator: true, trickle: false });
+    setPeer(newPeer);
     let shareId: string;
 
     const generateShortCode = () => {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      let result = '';
-      for (let i = 0; i < 6; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      return result;
+      return Math.floor(100000 + Math.random() * 900000).toString();
     }
 
-    peer.on('signal', async (offer) => {
-      if (peer.initiator) {
+    newPeer.on('signal', async (offer) => {
+      if (newPeer.initiator) {
         const generatedCode = generateShortCode();
         setShortCode(generatedCode);
 
+        // Set expiration for 1 hour from now
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
         const { data, error } = await supabase
           .from('fileshare')
-          .insert([{ p2p_offer: JSON.stringify(offer), short_code: generatedCode }])
+          .insert([{ p2p_offer: JSON.stringify(offer), short_code: generatedCode, expires_at: expiresAt }])
           .select('id')
           .single();
 
         if (error || !data) {
           console.error('Error creating share session:', error);
+          setIsConnecting(false);
           return;
         }
         shareId = data.id;
@@ -71,8 +72,8 @@ export default function Home() {
             },
             (payload) => {
               const { p2p_answer } = payload.new as { p2p_answer: string };
-              if (p2p_answer && !peer.destroyed) {
-                peer.signal(JSON.parse(p2p_answer));
+              if (p2p_answer && !newPeer.destroyed) {
+                newPeer.signal(JSON.parse(p2p_answer));
                 channel.unsubscribe();
               }
             }
@@ -81,11 +82,11 @@ export default function Home() {
       }
     });
 
-    peer.on('connect', () => {
+    newPeer.on('connect', () => {
       console.log('Peer connected!');
-      setIsUploading(false);
+      setIsConnecting(false);
 
-      peer.send(JSON.stringify({ type: 'fileDetails', payload: fileInfo }));
+      newPeer.send(JSON.stringify({ type: 'fileDetails', payload: fileInfo }));
       
       const chunkSize = 64 * 1024;
       let offset = 0;
@@ -94,18 +95,21 @@ export default function Home() {
         const slice = file.slice(offset, offset + chunkSize);
         const reader = new FileReader();
         reader.onload = (e) => {
-          if (e.target?.result) {
-            peer.send(e.target.result as ArrayBuffer);
-            offset += (e.target.result as ArrayBuffer).byteLength;
-            setUploadProgress(Math.min((offset / file.size) * 100, 100));
+          if (e.target?.result && !newPeer.destroyed) {
+            try {
+              newPeer.send(e.target.result as ArrayBuffer);
+              offset += (e.target.result as ArrayBuffer).byteLength;
+              setTransferProgress(Math.min((offset / file.size) * 100, 100));
 
-            if (offset < file.size) {
-              if (!peer.destroyed) {
-                readSlice();
+              if (offset < file.size) {
+                  readSlice();
+              } else {
+                console.log('File sent');
+                newPeer.send(JSON.stringify({ type: 'transferComplete' }));
               }
-            } else {
-              console.log('File sent');
-              peer.send(JSON.stringify({ type: 'transferComplete' }));
+            } catch(err) {
+              console.error("Error sending file chunk:", err);
+              handleReset();
             }
           }
         };
@@ -115,21 +119,23 @@ export default function Home() {
       readSlice();
     });
     
-    peer.on('close', () => {
+    newPeer.on('close', () => {
       console.log('Peer disconnected');
       handleReset();
     });
 
-    peer.on('error', (err) => {
+    newPeer.on('error', (err) => {
       console.error('Peer error', err);
       handleReset();
     });
   };
 
   const handleReset = () => {
+    peer?.destroy();
+    setPeer(null);
     setFileDetails(null);
-    setIsUploading(false);
-    setUploadProgress(0);
+    setIsConnecting(false);
+    setTransferProgress(0);
     setShareLink('');
     setShortCode('');
   };
@@ -142,24 +148,31 @@ export default function Home() {
             <Send className="text-primary h-7 w-7" />
             <h1 className="text-2xl font-bold font-headline text-foreground">FileZen</h1>
           </div>
-          <Button variant="ghost" onClick={() => router.push('/join')}>
-            <LinkIcon className="mr-2" />
-            Enter Code
-          </Button>
         </div>
       </header>
       <main className="w-full max-w-lg">
-        {!fileDetails ? (
-          <FileUpload onFileSelect={handleFileSelect} />
-        ) : (
+        {fileDetails ? (
           <SharePanel
             fileDetails={fileDetails}
-            uploadProgress={uploadProgress}
-            isUploading={isUploading}
+            transferProgress={transferProgress}
+            isConnecting={isConnecting}
             onReset={handleReset}
             shareLink={shareLink}
             shortCode={shortCode}
           />
+        ) : (
+          <Tabs defaultValue="share" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="share"><Send className="mr-2"/>Share File</TabsTrigger>
+              <TabsTrigger value="receive"><Download className="mr-2"/>Receive File</TabsTrigger>
+            </TabsList>
+            <TabsContent value="share" className="mt-6">
+              <FileUpload onFileSelect={handleFileSelect} />
+            </TabsContent>
+            <TabsContent value="receive" className="mt-6">
+              <ReceiveForm />
+            </TabsContent>
+          </Tabs>
         )}
       </main>
     </div>

@@ -1,3 +1,4 @@
+
 export interface FileDetails {
   name: string;
   size: number;
@@ -12,4 +13,5 @@ export interface SignalingData {
   p2p_answer?: string;
   created_at: string;
   short_code?: string;
+  expires_at?: string;
 }

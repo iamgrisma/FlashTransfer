@@ -1,50 +1,59 @@
+
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Peer from 'simple-peer';
 import { createClient } from '@/lib/supabase';
 import { FileDetails } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Download, File as FileIcon, Loader } from 'lucide-react';
+import { Download, File as FileIcon, Loader, WifiOff } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Label } from '@/components/ui/label';
 
 export default function DownloadPage() {
   const params = useParams();
   const shareId = params.id as string;
-  const supabase = createClient();
-
+  
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
   const [status, setStatus] = useState('Connecting...');
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [fileChunks, setFileChunks] = useState<any[]>([]);
-  const [receivedSize, setReceivedSize] = useState(0);
+  
+  const fileChunksRef = useRef<any[]>([]);
+  const receivedSizeRef = useRef(0);
+  const peerRef = useRef<Peer.Instance | null>(null);
 
   useEffect(() => {
     if (!shareId) return;
+    const supabase = createClient();
 
     const peer = new Peer({
       initiator: false,
       trickle: false,
     });
+    peerRef.current = peer;
 
     const fetchOffer = async () => {
-      const { data, error } = await supabase
-        .from('fileshare')
-        .select('p2p_offer')
-        .eq('id', shareId)
-        .single();
-      
-      if (error || !data || !data.p2p_offer) {
-        setError('Invalid or expired share link.');
-        console.error('Error fetching offer:', error);
-        return;
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('fileshare')
+          .select('p2p_offer')
+          .eq('id', shareId)
+          .single();
+        
+        if (fetchError || !data || !data.p2p_offer) {
+          setError('Invalid or expired share link.');
+          setStatus('Error');
+          console.error('Error fetching offer:', fetchError);
+          return;
+        }
+        
+        peer.signal(JSON.parse(data.p2p_offer));
+      } catch (err) {
+         setError('An unexpected error occurred while fetching the session.');
+         setStatus('Error');
       }
-      
-      peer.signal(JSON.parse(data.p2p_offer));
     };
 
     fetchOffer();
@@ -73,7 +82,8 @@ export default function DownloadPage() {
         } else if (data.type === 'transferComplete') {
             setStatus('Download complete!');
             setDownloadProgress(100);
-            const fileBlob = new Blob(fileChunks, { type: fileDetails?.type });
+            
+            const fileBlob = new Blob(fileChunksRef.current, { type: fileDetails?.type });
             const url = URL.createObjectURL(fileBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -82,17 +92,21 @@ export default function DownloadPage() {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            
+            fileChunksRef.current = []; // Clear chunks after download
         }
       } catch (e) {
         // This is a file chunk
-        const newReceivedSize = receivedSize + chunk.byteLength;
-        setReceivedSize(newReceivedSize);
-        setFileChunks(prev => [...prev, chunk]);
+        receivedSizeRef.current += chunk.byteLength;
+        fileChunksRef.current.push(chunk);
+
         if (totalSize > 0) {
-          const progress = Math.min((newReceivedSize / totalSize) * 100, 100);
+          const progress = Math.min((receivedSizeRef.current / totalSize) * 100, 100);
           setDownloadProgress(progress);
         }
-        setStatus('Downloading...');
+        if (status !== 'Downloading...') {
+          setStatus('Downloading...');
+        }
       }
     });
 
@@ -105,14 +119,15 @@ export default function DownloadPage() {
 
     peer.on('error', (err) => {
       console.error('Peer error', err);
-      setError('A connection error occurred.');
+      setError('A connection error occurred. The sender may have left.');
       setStatus('Error');
     });
 
     return () => {
       peer.destroy();
+      peerRef.current = null;
     };
-  }, [shareId, supabase]);
+  }, [shareId, status, downloadProgress]);
 
   const formatBytes = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
@@ -131,7 +146,13 @@ export default function DownloadPage() {
           <CardDescription>{status}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {error && <p className="text-destructive text-center">{error}</p>}
+          {error && 
+            <div className="flex flex-col items-center justify-center space-y-4 p-10 text-center">
+                <WifiOff className="h-12 w-12 text-destructive"/>
+                <p className="text-destructive font-medium">Download Failed</p>
+                <p className="text-destructive/80 text-sm">{error}</p>
+            </div>
+          }
           
           {!fileDetails && !error && (
             <div className="flex flex-col items-center justify-center space-y-4 p-10">
@@ -140,7 +161,7 @@ export default function DownloadPage() {
             </div>
           )}
 
-          {fileDetails && (
+          {fileDetails && !error && (
             <div>
               <div className="flex items-center space-x-4 p-4 rounded-md border bg-secondary/50 mb-6">
                 <FileIcon className="h-8 w-8 text-primary" />

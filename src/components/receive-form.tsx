@@ -10,9 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import Link from 'next/link';
 
-export default function JoinPage() {
+export default function ReceiveForm() {
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -21,11 +20,11 @@ export default function JoinPage() {
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.length !== 6) {
+    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
       toast({
         variant: 'destructive',
         title: 'Invalid Code',
-        description: 'Please enter a valid 6-digit share code.',
+        description: 'Please enter a valid 6-digit numeric code.',
       });
       return;
     }
@@ -58,36 +57,32 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm shadow-lg">
-        <CardHeader>
-          <CardTitle>Join a Share Session</CardTitle>
-          <CardDescription>Enter the 6-digit code from the sender to begin the file download.</CardDescription>
+    <Card className="shadow-none border-none">
+        <CardHeader className="text-center">
+            <CardTitle>Receive a File</CardTitle>
+            <CardDescription>Enter the 6-digit code from the sender to begin the file download.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleJoin} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="share-code">Share Code</Label>
-              <Input
-                id="share-code"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="ABCDEF"
-                maxLength={6}
-                className="text-2xl h-14 text-center tracking-[0.3em] font-mono"
-                disabled={isLoading}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Join
-            </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Or, <Link href="/" className="text-primary underline">start a new share</Link>.
-            </p>
-          </form>
+            <form onSubmit={handleJoin} className="space-y-6">
+                <div className="space-y-2">
+                <Label htmlFor="share-code" className="sr-only">Share Code</Label>
+                <Input
+                    id="share-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="123456"
+                    maxLength={6}
+                    className="text-2xl h-14 text-center tracking-[0.3em] font-mono"
+                    disabled={isLoading}
+                    autoComplete="off"
+                />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Join
+                </Button>
+            </form>
         </CardContent>
-      </Card>
-    </div>
+    </Card>
   );
 }

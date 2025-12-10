@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -21,14 +22,14 @@ import { Separator } from './ui/separator';
 
 interface SharePanelProps {
   fileDetails: FileDetails;
-  uploadProgress: number;
-  isUploading: boolean; 
+  transferProgress: number;
+  isConnecting: boolean; 
   onReset: () => void;
   shareLink: string;
   shortCode: string;
 }
 
-export default function SharePanel({ fileDetails, uploadProgress, isUploading, onReset, shareLink, shortCode }: SharePanelProps) {
+export default function SharePanel({ fileDetails, transferProgress, isConnecting, onReset, shareLink, shortCode }: SharePanelProps) {
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -50,7 +51,7 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
 
   const handleShareEmail = () => {
     const subject = `File Share: ${fileDetails.name}`;
-    const body = `Someone has shared a file with you. Click the link to download:\n\n${shareLink}\n\nOr, go to ${window.location.origin}/join and enter the code: ${shortCode}`;
+    const body = `Someone has shared a file with you.\n\nEnter the code: ${shortCode}\n\nOr click the link to download:\n${shareLink}`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
@@ -62,7 +63,7 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
             <div>
                 <CardTitle className="font-headline">Share File</CardTitle>
                 <CardDescription>
-                  {isUploading ? "Waiting for recipient to connect..." : "Ready to transfer."}
+                  {isConnecting ? "Generating share code..." : (transferProgress > 0 ? "Transfer in progress..." : "Ready to transfer. Waiting for recipient...")}
                 </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={onReset} aria-label="Cancel share">
@@ -79,21 +80,21 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
           </div>
         </div>
         
-        {(isUploading || uploadProgress > 0) && (
-          <div className="space-y-2">
+        {(isConnecting || transferProgress > 0) && !shareLink && (
+           <div className="space-y-2">
             <div className="flex justify-between items-center">
-                <Label htmlFor="upload-progress">
-                  {isUploading ? "Waiting for connection..." : "Transferring..."}
+                <Label>
+                  {isConnecting ? "Waiting for connection..." : "Transferring..."}
                 </Label>
-                {uploadProgress > 0 && <span className="text-sm font-medium text-primary">{Math.round(uploadProgress)}%</span>}
+                {transferProgress > 0 && <span className="text-sm font-medium text-primary">{Math.round(transferProgress)}%</span>}
             </div>
-            {isUploading && <div className="flex items-center justify-center p-4"><Loader className="animate-spin text-primary"/></div>}
-            {!isUploading && <Progress id="upload-progress" value={uploadProgress} />}
+            {isConnecting && <div className="flex items-center justify-center p-4"><Loader className="animate-spin text-primary"/></div>}
+            {!isConnecting && <Progress value={transferProgress} />}
           </div>
         )}
 
         {shareLink && (
-          <div className="space-y-4">
+          <div className="space-y-4 animate-in fade-in-0">
             <Separator />
              <div className="space-y-2">
                 <Label htmlFor="short-code">Share Code</Label>
@@ -132,6 +133,15 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
                   </DialogContent>
                 </Dialog>
             </div>
+             {transferProgress > 0 &&
+              <div className="space-y-2 pt-2">
+                  <div className="flex justify-between items-center">
+                    <Label htmlFor="transfer-progress">Transferring...</Label>
+                    <span className="text-sm font-medium text-primary">{Math.round(transferProgress)}%</span>
+                  </div>
+                  <Progress id="transfer-progress" value={transferProgress} />
+              </div>
+            }
           </div>
         )}
       </CardContent>
