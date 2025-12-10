@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useRef, useState } from 'react';
@@ -75,9 +76,8 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      onClick={handleClick}
     >
-      <CardContent className="p-10 text-center cursor-pointer">
+      <CardContent className="p-10 text-center cursor-pointer" onClick={handleClick}>
         <div className="flex flex-col items-center justify-center space-y-4">
           <div className="p-4 bg-primary/10 rounded-full border-8 border-primary/5">
             <UploadCloud className={cn('h-12 w-12 text-primary transition-colors', isDragging && 'text-primary-foreground')} />
