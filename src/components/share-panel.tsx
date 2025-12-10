@@ -21,15 +21,15 @@ import {
 import { Separator } from './ui/separator';
 
 interface SharePanelProps {
-  fileDetails: FileDetails;
-  transferProgress: number;
+  files: File[];
+  transferProgress: { [key: string]: number };
   isConnecting: boolean; 
   onReset: () => void;
   shareLink: string;
   shortCode: string;
 }
 
-export default function SharePanel({ fileDetails, transferProgress, isConnecting, onReset, shareLink, shortCode }: SharePanelProps) {
+export default function SharePanel({ files, transferProgress, isConnecting, onReset, shareLink, shortCode }: SharePanelProps) {
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -50,20 +50,22 @@ export default function SharePanel({ fileDetails, transferProgress, isConnecting
   };
 
   const handleShareEmail = () => {
-    const subject = `File Share: ${fileDetails.name}`;
-    const body = `Someone has shared a file with you.\n\nEnter the code: ${shortCode}\n\nOr click the link to download:\n${shareLink}`;
+    const subject = `File Share Invitation`;
+    const body = `Someone has shared ${files.length} file(s) with you using FileZen.\n\nTo download, enter this code on the FileZen website: ${shortCode}\n\nOr use this direct link:\n${shareLink}`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
+  const totalProgress = files.reduce((acc, file) => acc + (transferProgress[file.name] || 0), 0) / files.length;
+  const isTransferring = Object.values(transferProgress).some(p => p > 0);
 
   return (
     <Card className="w-full max-w-lg shadow-lg animate-in fade-in-0 zoom-in-95">
       <CardHeader>
         <div className="flex justify-between items-start">
             <div>
-                <CardTitle className="font-headline">Share File</CardTitle>
+                <CardTitle className="font-headline">Share Files</CardTitle>
                 <CardDescription>
-                  {isConnecting ? "Generating share code..." : (transferProgress > 0 ? "Transfer in progress..." : "Ready to transfer. Waiting for recipient...")}
+                  {isConnecting ? "Generating share code..." : (isTransferring ? "Transfer in progress..." : "Ready to transfer. Waiting for recipient...")}
                 </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={onReset} aria-label="Cancel share">
@@ -72,24 +74,38 @@ export default function SharePanel({ fileDetails, transferProgress, isConnecting
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex items-center space-x-4 p-4 rounded-md border bg-secondary/50">
-          <FileIcon className="h-8 w-8 text-primary" />
-          <div className="flex-1 overflow-hidden">
-            <p className="text-sm font-medium truncate text-foreground">{fileDetails.name}</p>
-            <p className="text-sm text-muted-foreground">{formatBytes(fileDetails.size)}</p>
-          </div>
+        <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+            {files.map(file => (
+                <div key={file.name} className="flex items-center space-x-4 p-3 rounded-md border bg-secondary/50">
+                    <FileIcon className="h-8 w-8 text-primary" />
+                    <div className="flex-1 overflow-hidden">
+                        <p className="text-sm font-medium truncate text-foreground">{file.name}</p>
+                        <p className="text-sm text-muted-foreground">{formatBytes(file.size)}</p>
+                    </div>
+                    {transferProgress[file.name] !== undefined && (
+                      <div className="w-24 text-right">
+                        {transferProgress[file.name] < 100 ? (
+                            <span className="text-sm font-medium text-primary">{Math.round(transferProgress[file.name])}%</span>
+                        ) : (
+                            <Check className="h-5 w-5 text-green-500" />
+                        )}
+                      </div>
+                    )}
+                </div>
+            ))}
         </div>
         
-        {(isConnecting || transferProgress > 0) && !shareLink && (
-           <div className="space-y-2">
-            <div className="flex justify-between items-center">
-                <Label>
-                  {isConnecting ? "Waiting for connection..." : "Transferring..."}
-                </Label>
-                {transferProgress > 0 && <span className="text-sm font-medium text-primary">{Math.round(transferProgress)}%</span>}
-            </div>
-            {isConnecting && <div className="flex items-center justify-center p-4"><Loader className="animate-spin text-primary"/></div>}
-            {!isConnecting && <Progress value={transferProgress} />}
+        {isConnecting && !shareLink && (
+           <div className="flex items-center justify-center p-4"><Loader className="animate-spin text-primary h-8 w-8"/></div>
+        )}
+
+        {isTransferring && totalProgress < 100 && (
+          <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                  <Label>Overall Progress</Label>
+                  <span className="text-sm font-medium text-primary">{Math.round(totalProgress)}%</span>
+              </div>
+              <Progress value={totalProgress} />
           </div>
         )}
 
@@ -127,27 +143,18 @@ export default function SharePanel({ fileDetails, transferProgress, isConnecting
                     <DialogHeader>
                       <DialogTitle>Scan QR Code</DialogTitle>
                     </DialogHeader>
-                    <div className="flex items-center justify-center p-4">
+                    <div className="flex items-center justify-center p-4 bg-white rounded-md">
                       {shareLink && <QRCode value={shareLink} size={200} />}
                     </div>
                   </DialogContent>
                 </Dialog>
             </div>
-             {transferProgress > 0 &&
-              <div className="space-y-2 pt-2">
-                  <div className="flex justify-between items-center">
-                    <Label htmlFor="transfer-progress">Transferring...</Label>
-                    <span className="text-sm font-medium text-primary">{Math.round(transferProgress)}%</span>
-                  </div>
-                  <Progress id="transfer-progress" value={transferProgress} />
-              </div>
-            }
           </div>
         )}
       </CardContent>
       <CardFooter>
           <p className="text-xs text-muted-foreground text-center w-full">
-            Keep this window open until the file transfer is complete.
+            Keep this window open until all file transfers are complete.
           </p>
       </CardFooter>
     </Card>

@@ -5,6 +5,10 @@ export interface FileDetails {
   type: string;
 }
 
+export type ScannedFile = FileDetails & {
+    scanStatus: 'unscanned' | 'scanning' | 'scanned' | 'failed';
+}
+
 export type Permission = "View Only" | "Download" | "Editor";
 
 export interface SignalingData {

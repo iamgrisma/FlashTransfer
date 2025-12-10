@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
+  onFileSelect: (files: FileList) => void;
 }
 
 export default function FileUpload({ onFileSelect }: FileUploadProps) {
@@ -17,13 +17,13 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const handleFile = (file: File | undefined | null) => {
-    if (file) {
-      onFileSelect(file);
+  const handleFiles = (files: FileList | undefined | null) => {
+    if (files && files.length > 0) {
+      onFileSelect(files);
     } else {
       toast({
-        title: 'Invalid File',
-        description: 'Please select a valid file to upload.',
+        title: 'No Files Selected',
+        description: 'Please select one or more files to upload.',
         variant: 'destructive',
       });
     }
@@ -50,13 +50,15 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    handleFile(file);
+    const files = e.dataTransfer.files;
+    handleFiles(files);
   };
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    handleFile(file);
+    const files = e.target.files;
+    handleFiles(files);
+    // Reset file input to allow selecting the same file again
+    e.target.value = '';
   };
 
   const handleClick = () => {
@@ -92,6 +94,7 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
           type="file"
           className="hidden"
           onChange={handleInputChange}
+          multiple
         />
       </CardContent>
     </Card>
