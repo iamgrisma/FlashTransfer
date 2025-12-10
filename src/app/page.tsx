@@ -19,7 +19,7 @@ export default function Home() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [transferProgress, setTransferProgress] = useState<{ [key: string]: number }>({});
   const [shareLink, setShareLink] = useState('');
-  const [obfuscatedCode, setObfuscatedCode] = useState('');
+  const [shareCode, setShareCode] = useState('');
   
   const peerRef = useRef<Peer.Instance | null>(null);
   const { toast } = useToast();
@@ -69,7 +69,7 @@ export default function Home() {
       }
       
       setShareLink(`${window.location.origin}/s/${newObfuscatedCode}`);
-      setObfuscatedCode(newObfuscatedCode);
+      setShareCode(newObfuscatedCode);
 
       const shareId = data.id;
       const channel = supabase
@@ -198,7 +198,7 @@ export default function Home() {
     setIsConnecting(false);
     setTransferProgress({});
     setShareLink('');
-    setObfuscatedCode('');
+    setShareCode('');
   };
 
   return (
@@ -211,7 +211,7 @@ export default function Home() {
             isConnecting={isConnecting}
             onReset={handleReset}
             shareLink={shareLink}
-            shortCode={obfuscatedCode}
+            shortCode={shareCode}
           />
         ) : (
           <>
@@ -273,3 +273,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
