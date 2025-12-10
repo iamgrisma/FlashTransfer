@@ -1,42 +1,121 @@
+
 "use client";
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
 import { Send } from 'lucide-react';
 import type { FileDetails } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+import Peer from 'simple-peer';
 
 export default function Home() {
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false); // This will now represent "waiting for connection"
+  const [uploadProgress, setUploadProgress] = useState(0); // This will show transfer progress
+  const [shareLink, setShareLink] = useState('');
+  const router = useRouter();
 
-  const handleFileSelect = (file: File) => {
-    setFileDetails({
+  const handleFileSelect = async (file: File) => {
+    const fileDetails = {
       name: file.name,
       size: file.size,
       type: file.type,
-    });
-    setIsUploading(true);
-    setUploadProgress(0);
+    };
+    setFileDetails(fileDetails);
+    setIsUploading(true); // Indicates we are starting the process
 
-    // Simulate upload
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          return 100;
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+    });
+
+    const { data, error } = await supabase
+      .from('fileshare')
+      .insert([{}])
+      .select('id')
+      .single();
+
+    if (error || !data) {
+      console.error('Error creating share session', error);
+      // Handle error state in UI
+      return;
+    }
+    const shareId = data.id;
+
+    peer.on('signal', async (signalData) => {
+      await supabase
+        .from('fileshare')
+        .update({ offer: JSON.stringify(signalData) })
+        .eq('id', shareId);
+    });
+
+    const channel = supabase
+      .channel(`fileshare-${shareId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'fileshare', filter: `id=eq.${shareId}` },
+        (payload) => {
+          const { answer } = payload.new;
+          if (answer && peer && !peer.destroyed) {
+            peer.signal(JSON.parse(answer));
+            channel.unsubscribe();
+          }
         }
-        return prev + 10;
-      });
-    }, 200);
+      )
+      .subscribe();
+
+    peer.on('connect', () => {
+      console.log('Peer connected!');
+      setIsUploading(false); // Connection established, ready to send
+
+      peer.send(JSON.stringify({ type: 'fileDetails', payload: fileDetails }));
+      
+      const chunkSize = 64 * 1024; // 64KB
+      let offset = 0;
+
+      const readSlice = () => {
+        const slice = file.slice(offset, offset + chunkSize);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (e.target?.result) {
+            peer.send(e.target.result as ArrayBuffer);
+            offset += (e.target.result as ArrayBuffer).byteLength;
+            setUploadProgress(Math.min((offset / file.size) * 100, 100));
+
+            if (offset < file.size) {
+              readSlice();
+            } else {
+              console.log('File sent');
+              peer.send(JSON.stringify({ type: 'transferComplete' }));
+            }
+          }
+        };
+        reader.readAsArrayBuffer(slice);
+      };
+      
+      readSlice();
+    });
+    
+    peer.on('close', () => {
+      console.log('Peer disconnected');
+      handleReset();
+    });
+
+    peer.on('error', (err) => {
+      console.error('Peer error', err);
+      handleReset();
+    });
+
+    setShareLink(`${window.location.origin}/${shareId}`);
   };
 
   const handleReset = () => {
     setFileDetails(null);
     setIsUploading(false);
     setUploadProgress(0);
+    setShareLink('');
   };
 
   return (
@@ -56,6 +135,7 @@ export default function Home() {
             uploadProgress={uploadProgress}
             isUploading={isUploading}
             onReset={handleReset}
+            shareLink={shareLink}
           />
         )}
       </main>
