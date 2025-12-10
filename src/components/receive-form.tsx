@@ -20,11 +20,11 @@ export default function ReceiveForm() {
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+    if (code.length !== 5) {
       toast({
         variant: 'destructive',
         title: 'Invalid Code',
-        description: 'Please enter a valid 6-digit numeric code.',
+        description: 'Please enter a valid 5-character alphanumeric code.',
       });
       return;
     }
@@ -34,17 +34,17 @@ export default function ReceiveForm() {
     try {
       const { data, error } = await supabase
         .from('fileshare')
-        .select('id')
-        .eq('short_code', code)
+        .select('obfuscated_code')
+        .eq('short_code', code.toLowerCase())
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
       
-      if (error || !data) {
+      if (error || !data || !data.obfuscated_code) {
         throw new Error('Share session not found or has expired.');
       }
       
-      router.push(`/${data.id}`);
+      router.push(`/s/${data.obfuscated_code}`);
 
     } catch (error: any) {
       toast({
@@ -60,7 +60,7 @@ export default function ReceiveForm() {
     <Card className="shadow-none border-none">
         <CardHeader className="text-center">
             <CardTitle>Receive a File</CardTitle>
-            <CardDescription>Enter the 6-digit code from the sender to begin the file download.</CardDescription>
+            <CardDescription>Enter the 5-character code from the sender to begin the file download.</CardDescription>
         </CardHeader>
         <CardContent>
             <form onSubmit={handleJoin} className="space-y-6">
@@ -69,9 +69,9 @@ export default function ReceiveForm() {
                 <Input
                     id="share-code"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="123456"
-                    maxLength={6}
+                    onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                    placeholder="a1b2c"
+                    maxLength={5}
                     className="text-2xl h-14 text-center tracking-[0.3em] font-mono"
                     disabled={isLoading}
                     autoComplete="off"

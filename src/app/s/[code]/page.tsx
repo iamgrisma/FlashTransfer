@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Download, File as FileIcon, Loader, Scan, ShieldAlert, Wifi, WifiOff } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
+import { Progress } from '@/componentsui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,7 +19,7 @@ type TransferStatus = 'Connecting' | 'Waiting' | 'Receiving' | 'Completed' | 'Er
 
 export default function DownloadPage() {
   const params = useParams();
-  const shareId = params.id as string;
+  const obfuscatedCode = params.code as string;
   
   const [files, setFiles] = useState<ScannedFile[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -33,9 +33,10 @@ export default function DownloadPage() {
   const receivedSizeRef = useRef<{ [key: string]: number }>({});
   const { toast } = useToast();
   const lastPing = useRef(Date.now());
+  const shareIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!shareId) return;
+    if (!obfuscatedCode) return;
     const supabase = createClient();
 
     const peer = new Peer({
@@ -48,8 +49,8 @@ export default function DownloadPage() {
       try {
         const { data, error: fetchError } = await supabase
           .from('fileshare')
-          .select('p2p_offer')
-          .eq('id', shareId)
+          .select('id, p2p_offer')
+          .eq('obfuscated_code', obfuscatedCode)
           .single();
         
         if (fetchError || !data || !data.p2p_offer) {
@@ -58,6 +59,7 @@ export default function DownloadPage() {
           return;
         }
         
+        shareIdRef.current = data.id;
         peer.signal(JSON.parse(data.p2p_offer));
       } catch (err) {
          setError('An unexpected error occurred while fetching the session.');
@@ -77,10 +79,11 @@ export default function DownloadPage() {
     }, 3000);
 
     peer.on('signal', async (signalData) => {
+      if (!shareIdRef.current) return;
       await supabase
         .from('fileshare')
         .update({ p2p_answer: JSON.stringify(signalData) })
-        .eq('id', shareId);
+        .eq('id', shareIdRef.current);
     });
 
     peer.on('connect', () => {
@@ -97,7 +100,6 @@ export default function DownloadPage() {
         try {
             parsedData = JSON.parse(data.toString());
         } catch (e) {
-            // This is a raw chunk, which we don't expect directly anymore
             return;
         }
 
@@ -135,7 +137,6 @@ export default function DownloadPage() {
                 if (completedFile) {
                   setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
                 }
-                // If all files are downloaded, set status to completed
                 const allDone = files.every(f => downloadProgress[f.name] === 100);
                 if (allDone) {
                     setStatus('Completed');
@@ -166,7 +167,7 @@ export default function DownloadPage() {
       peerRef.current = null;
       clearInterval(pingCheck);
     };
-  }, [shareId]);
+  }, [obfuscatedCode]);
 
 
   const requestFile = (fileName: string) => {

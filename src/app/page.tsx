@@ -12,6 +12,7 @@ import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { generateShareCode, obfuscateCode } from '@/lib/code';
 
 export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
@@ -26,10 +27,10 @@ export default function Home() {
   const peerCreated = useRef(false);
 
   const handleFileSelect = (selectedFiles: FileList) => {
-    setFiles(Array.from(selectedFiles));
+    const filesArray = Array.from(selectedFiles);
+    setFiles(filesArray);
     setIsConnecting(true);
 
-    // Destroy any existing peer before creating a new one
     if (peerRef.current) {
       peerRef.current.destroy();
       peerCreated.current = false;
@@ -38,10 +39,6 @@ export default function Home() {
     const newPeer = new Peer({ initiator: true, trickle: false });
     peerRef.current = newPeer;
     peerCreated.current = true;
-
-    const generateShortCode = () => {
-      return Math.floor(100000 + Math.random() * 900000).toString();
-    };
     
     newPeer.on('signal', async (offer) => {
       if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer') {
@@ -49,12 +46,18 @@ export default function Home() {
       }
       
       const supabase = createClient();
-      const generatedCode = generateShortCode();
+      const newShortCode = generateShareCode();
+      const newObfuscatedCode = obfuscateCode(newShortCode);
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
       const { data, error } = await supabase
         .from('fileshare')
-        .insert([{ p2p_offer: JSON.stringify(offer), short_code: generatedCode, expires_at: expiresAt }])
+        .insert([{ 
+            p2p_offer: JSON.stringify(offer), 
+            short_code: newShortCode,
+            obfuscated_code: newObfuscatedCode,
+            expires_at: expiresAt 
+        }])
         .select('id')
         .single();
 
@@ -68,11 +71,11 @@ export default function Home() {
         setIsConnecting(false);
         return;
       }
+      
+      setShareLink(`${window.location.origin}/s/${newObfuscatedCode}`);
+      setShortCode(newShortCode);
 
       const shareId = data.id;
-      setShareLink(`${window.location.origin}/${shareId}`);
-      setShortCode(generatedCode);
-
       const channel = supabase
         .channel(`fileshare-${shareId}`)
         .on(
@@ -102,17 +105,18 @@ export default function Home() {
       console.log('Peer connected!');
       setIsConnecting(false);
 
-      if (files.length === 0) return;
+      if (filesArray.length === 0) return;
 
-      const filesDetails: FileDetails[] = files.map(file => ({
+      const filesDetails: FileDetails[] = filesArray.map(file => ({
         name: file.name,
         size: file.size,
         type: file.type,
       }));
       
-      newPeer.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
+      if (!newPeer.destroyed) {
+        newPeer.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
+      }
       
-      // Start a ping interval to keep the connection alive and signal online status
       const pingInterval = setInterval(() => {
         if (!newPeer.destroyed) {
           newPeer.send(JSON.stringify({ type: 'ping' }));
@@ -257,8 +261,8 @@ export default function Home() {
               <p>Using FileZen is designed to be incredibly straightforward:</p>
               <ol>
                   <li><strong>Select Your Files:</strong> You start by dragging and dropping one or more files into the upload area on the homepage. Your files are not actually being "uploaded"—they are simply being prepared for transfer from your local machine.</li>
-                  <li><strong>Generate a Secure Link:</strong> FileZen instantly generates a unique and private share link and a 6-digit short code. This link doesn't point to your file on a server; instead, it contains the necessary information for a recipient's browser to connect directly to yours.</li>
-                  <li><strong>Share the Link or Code:</strong> You can share this link via email, a QR code, or simply by telling the recipient the short code. This is the "key" that allows them to initiate a connection.</li>
+                  <li><strong>Generate a Secure Link:</strong> FileZen instantly generates a unique and private share link and a 5-character code. This link doesn't point to your file on a server; instead, it contains the necessary information for a recipient's browser to connect directly to yours.</li>
+                  <li><strong>Share the Link or Code:</strong> You can share this link via email, a QR code, or simply by telling the recipient the share code. This is the "key" that allows them to initiate a connection.</li>
                   <li><strong>The Recipient Connects:</strong> When the recipient opens the link or enters the code, their browser sends a secure signal back to yours, establishing a direct P2P connection.</li>
                   <li><strong>Direct Transfer Begins:</strong> Once connected, the file transfer begins. The file data streams directly from your computer to the recipient's, chunk by chunk. You can see the transfer progress in real-time.</li>
               </ol>

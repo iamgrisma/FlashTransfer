@@ -113,7 +113,7 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
           <div className="space-y-4 animate-in fade-in-0">
             <Separator />
              <div className="space-y-2">
-                <Label htmlFor="short-code">Share Code</Label>
+                <Label htmlFor="short-code">Share Code (5 characters)</Label>
                 <div className="flex space-x-2">
                   <Input id="short-code" value={shortCode} readOnly className="text-2xl h-14 text-center tracking-[0.3em] font-mono" />
                   <Button onClick={() => handleCopy(shortCode)} size="icon" variant="outline" aria-label="Copy code">
