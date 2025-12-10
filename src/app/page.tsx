@@ -24,7 +24,6 @@ export default function Home() {
   const peerRef = useRef<Peer.Instance | null>(null);
   const { toast } = useToast();
   const router = useRouter();
-  const peerCreated = useRef(false);
 
   const handleFileSelect = (selectedFiles: FileList) => {
     const filesArray = Array.from(selectedFiles);
@@ -33,15 +32,14 @@ export default function Home() {
 
     if (peerRef.current) {
       peerRef.current.destroy();
-      peerCreated.current = false;
     }
     
     const newPeer = new Peer({ initiator: true, trickle: false });
     peerRef.current = newPeer;
-    peerCreated.current = true;
     
     newPeer.on('signal', async (offer) => {
-      if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer') {
+      // Ensure we only process valid 'offer' type signals
+      if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer' || !offer.sdp) {
           return;
       }
       
@@ -66,7 +64,7 @@ export default function Home() {
          toast({
           variant: 'destructive',
           title: 'Failed to Create Share',
-          description: error?.message || 'Could not create a new share session. Please check your database schema and RLS policies.',
+          description: `Could not create a new share session. Please ensure your 'fileshare' table is configured correctly. Error: ${error?.message || 'Unknown error'}`,
         });
         setIsConnecting(false);
         return;
@@ -185,12 +183,10 @@ export default function Home() {
     });
 
     newPeer.on('error', (err) => {
-      if(peerCreated.current) {
-        console.error('Peer error', err);
-        if (!newPeer.destroyed) {
-          toast({ variant: 'destructive', title: 'Connection Error', description: 'An unexpected connection error occurred.'});
-          handleReset();
-        }
+      console.error('Peer error', err);
+      if (!newPeer.destroyed) {
+        toast({ variant: 'destructive', title: 'Connection Error', description: 'An unexpected connection error occurred.'});
+        handleReset();
       }
     });
   };
@@ -199,7 +195,6 @@ export default function Home() {
     if (peerRef.current) {
       peerRef.current.destroy();
       peerRef.current = null;
-      peerCreated.current = false;
     }
     setFiles([]);
     setIsConnecting(false);
@@ -280,5 +275,3 @@ export default function Home() {
     </div>
   );
 }
-
-    

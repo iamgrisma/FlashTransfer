@@ -35,7 +35,7 @@ export default function ReceiveForm() {
       const { data, error } = await supabase
         .from('fileshare')
         .select('obfuscated_code')
-        .eq('short_code', code)
+        .eq('short_code', code) // Case-sensitive lookup
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -44,6 +44,7 @@ export default function ReceiveForm() {
         throw new Error('Share session not found or has expired.');
       }
       
+      // Use the retrieved obfuscated_code for redirection
       router.push(`/s/${data.obfuscated_code}`);
 
     } catch (error: any) {
