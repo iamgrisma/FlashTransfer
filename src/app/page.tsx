@@ -59,7 +59,7 @@ export default function Home() {
            toast({
             variant: 'destructive',
             title: 'Failed to Create Share',
-            description: 'Could not create a new share session in the database. Please check your Supabase RLS policies for the `fileshare` table and ensure inserts are allowed.',
+            description: 'Could not create a new share session. Please ensure RLS policies for `fileshare` table allow inserts.',
           });
           setIsConnecting(false);
           return;
