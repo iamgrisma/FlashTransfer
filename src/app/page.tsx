@@ -41,7 +41,8 @@ export default function Home() {
     }
 
     newPeer.on('signal', async (offer) => {
-      if (newPeer.initiator) {
+      // FIX: Ensure the offer is valid before processing
+      if (newPeer.initiator && offer && offer.type === 'offer') {
         const generatedCode = generateShortCode();
         setShortCode(generatedCode);
 
@@ -59,7 +60,7 @@ export default function Home() {
            toast({
             variant: 'destructive',
             title: 'Failed to Create Share',
-            description: 'Could not create a new share session. Please ensure RLS policies for `fileshare` table allow inserts.',
+            description: 'Could not create a new share session. Please try again.',
           });
           setIsConnecting(false);
           return;
