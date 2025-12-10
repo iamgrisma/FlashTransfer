@@ -9,6 +9,7 @@ import { Send, Link as LinkIcon } from 'lucide-react';
 import type { FileDetails } from '@/lib/types';
 import { createClient } from '@/lib/supabase';
 import Peer from 'simple-peer';
+import { Button } from '@/components/ui/button';
 
 export default function Home() {
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
@@ -69,7 +70,7 @@ export default function Home() {
               filter: `id=eq.${shareId}`,
             },
             (payload) => {
-              const { p2p_answer } = payload.new;
+              const { p2p_answer } = payload.new as { p2p_answer: string };
               if (p2p_answer && !peer.destroyed) {
                 peer.signal(JSON.parse(p2p_answer));
                 channel.unsubscribe();
