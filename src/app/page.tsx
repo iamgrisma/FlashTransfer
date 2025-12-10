@@ -48,7 +48,7 @@ export default function Home() {
     peer.on('signal', async (signalData) => {
       await supabase
         .from('fileshare')
-        .update({ offer: JSON.stringify(signalData) })
+        .update({ p2p_offer: JSON.stringify(signalData) })
         .eq('id', shareId);
     });
 
@@ -58,9 +58,9 @@ export default function Home() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'fileshare', filter: `id=eq.${shareId}` },
         (payload) => {
-          const { answer } = payload.new;
-          if (answer && peer && !peer.destroyed) {
-            peer.signal(JSON.parse(answer));
+          const { p2p_answer } = payload.new;
+          if (p2p_answer && peer && !peer.destroyed) {
+            peer.signal(JSON.parse(p2p_answer));
             channel.unsubscribe();
           }
         }

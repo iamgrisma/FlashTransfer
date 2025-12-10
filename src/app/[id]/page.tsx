@@ -34,17 +34,17 @@ export default function DownloadPage() {
     const fetchOffer = async () => {
       const { data, error } = await supabase
         .from('fileshare')
-        .select('offer')
+        .select('p2p_offer')
         .eq('id', shareId)
         .single();
       
-      if (error || !data || !data.offer) {
+      if (error || !data || !data.p2p_offer) {
         setError('Invalid or expired share link.');
         console.error('Error fetching offer:', error);
         return;
       }
       
-      peer.signal(JSON.parse(data.offer));
+      peer.signal(JSON.parse(data.p2p_offer));
     };
 
     fetchOffer();
@@ -52,7 +52,7 @@ export default function DownloadPage() {
     peer.on('signal', async (signalData) => {
       await supabase
         .from('fileshare')
-        .update({ answer: JSON.stringify(signalData) })
+        .update({ p2p_answer: JSON.stringify(signalData) })
         .eq('id', shareId);
     });
 
@@ -112,7 +112,7 @@ export default function DownloadPage() {
     return () => {
       peer.destroy();
     };
-  }, [shareId]);
+  }, [shareId, supabase]);
 
   const formatBytes = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
