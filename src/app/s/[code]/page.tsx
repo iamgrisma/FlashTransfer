@@ -47,22 +47,28 @@ export default function DownloadPage() {
 
     const fetchOffer = async () => {
       try {
-        const { data, error: fetchError } = await supabase
-          .from('fileshare')
-          .select('id, p2p_offer')
-          .eq('obfuscated_code', obfuscatedCode)
-          .single();
+        const response = await fetch('/api/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ obfuscatedCode }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Share session not found.');
+        }
+
+        const { p2pOffer, shareId } = await response.json();
         
-        if (fetchError || !data || !data.p2p_offer) {
-          setError('Invalid or expired share link.');
-          setStatus('Error');
-          return;
+        if (!p2pOffer) {
+          throw new Error('Invalid or expired share link.');
         }
         
-        shareIdRef.current = data.id;
-        peer.signal(JSON.parse(data.p2p_offer));
-      } catch (err) {
-         setError('An unexpected error occurred while fetching the session.');
+        shareIdRef.current = shareId;
+        peer.signal(JSON.parse(p2pOffer));
+
+      } catch (err: any) {
+         setError(err.message || 'An unexpected error occurred while fetching the session.');
          setStatus('Error');
       }
     };
@@ -79,7 +85,7 @@ export default function DownloadPage() {
     }, 3000);
 
     peer.on('signal', async (signalData) => {
-      if (!shareIdRef.current) return;
+      if (!shareIdRef.current || (signalData as any).renegotiate) return;
       await supabase
         .from('fileshare')
         .update({ p2p_answer: JSON.stringify(signalData) })
@@ -137,7 +143,9 @@ export default function DownloadPage() {
                 if (completedFile) {
                   setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
                 }
-                const allDone = files.every(f => downloadProgress[f.name] === 100);
+                const allSelectedFiles = selectedFiles.length > 0 ? selectedFiles : files.map(f => f.name);
+                const allDone = allSelectedFiles.every(fileName => (downloadProgress[fileName] || 0) >= 100);
+
                 if (allDone) {
                     setStatus('Completed');
                 } else {
@@ -199,7 +207,7 @@ export default function DownloadPage() {
 
   const handleDownloadSelected = () => {
     selectedFiles.forEach(fileName => {
-        if(downloadProgress[fileName] < 100) {
+        if((downloadProgress[fileName] || 0) < 100) {
            requestFile(fileName);
         } else {
             downloadSingleFile(fileName);
@@ -208,7 +216,7 @@ export default function DownloadPage() {
   }
   const handleDownloadAll = () => {
     files.forEach(file => {
-        if(downloadProgress[file.name] < 100) {
+        if((downloadProgress[file.name] || 0) < 100) {
             requestFile(file.name);
         } else {
             downloadSingleFile(file.name);

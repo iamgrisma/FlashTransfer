@@ -52,7 +52,6 @@ export default function Home() {
         .insert([{ 
             p2p_offer: JSON.stringify(offer), 
             short_code: newShortCode,
-            obfuscated_code: newObfuscatedCode,
             expires_at: expiresAt 
         }])
         .select('id')

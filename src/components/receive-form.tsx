@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { obfuscateCode } from '@/lib/code';
 
 export default function ReceiveForm() {
   const [code, setCode] = useState('');
@@ -16,7 +17,7 @@ export default function ReceiveForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleJoin = async (e: React.FormEvent) => {
+  const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (code.length !== 5) {
       toast({
@@ -30,32 +31,14 @@ export default function ReceiveForm() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/share', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ shortCode: code }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Share code not found or expired.');
-      }
-
-      const { obfuscatedCode } = await response.json();
-      
-      if (!obfuscatedCode) {
-        throw new Error('Invalid response from server.');
-      }
-      
-      router.push(`/s/${obfuscatedCode}`);
-
+      // Obfuscate on the client and redirect, no API call needed here.
+      const obfuscated = obfuscateCode(code);
+      router.push(`/s/${obfuscated}`);
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'Could not find a share session with that code.',
+        description: error.message || 'An unexpected error occurred.',
       });
       setIsLoading(false);
     }
@@ -74,7 +57,7 @@ export default function ReceiveForm() {
                 <Input
                     id="share-code"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                    onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())}
                     placeholder="a1b2c"
                     maxLength={5}
                     className="text-2xl h-14 text-center tracking-[0.3em] font-mono"

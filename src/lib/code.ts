@@ -1,3 +1,4 @@
+
 const ALPHANUMERIC = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const SHIFT_SEQUENCE = [9, 2, 7, 4, 6];
 
@@ -27,7 +28,10 @@ export function obfuscateCode(code: string): string {
     const shift = SHIFT_SEQUENCE[index];
     const charIndex = ALPHANUMERIC.indexOf(char);
     
-    // Handle wrap-around for negative indices
+    if (charIndex === -1) {
+        throw new Error('Invalid character in code.');
+    }
+    
     const newIndex = (charIndex - shift + ALPHANUMERIC.length) % ALPHANUMERIC.length;
     
     return ALPHANUMERIC[newIndex];
@@ -46,4 +50,42 @@ export function obfuscateCode(code: string): string {
   ];
 
   return transposed.join('');
+}
+
+
+/**
+ * Reverses the obfuscation process.
+ * @param obfuscatedCode The obfuscated 5-character code.
+ * @returns The original share code.
+ */
+export function reverseObfuscateCode(obfuscatedCode: string): string {
+  if (obfuscatedCode.length !== 5) {
+    throw new Error('Obfuscated code must be 5 characters long.');
+  }
+
+  const transposed = obfuscatedCode.split('');
+  
+  // 1. Reverse Transposition
+  const substituted = [
+    transposed[1], // char from 2nd pos moves back to 1st
+    transposed[3], // char from 4th pos moves back to 2nd
+    transposed[4], // char from 5th pos moves back to 3rd
+    transposed[0], // char from 1st pos moves back to 4th
+    transposed[2], // char from 3rd pos moves back to 5th
+  ];
+
+  // 2. Reverse Substitution
+  const original = substituted.map((char, index) => {
+    const shift = SHIFT_SEQUENCE[index];
+    const charIndex = ALPHANUMERIC.indexOf(char);
+    
+    if (charIndex === -1) {
+        throw new Error('Invalid character in obfuscated code.');
+    }
+
+    const newIndex = (charIndex + shift) % ALPHANUMERIC.length;
+    return ALPHANUMERIC[newIndex];
+  });
+
+  return original.join('');
 }

@@ -1,16 +1,17 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { reverseObfuscateCode } from '@/lib/code';
 
 export async function POST(request: Request) {
   try {
-    const { shortCode } = await request.json();
+    const { obfuscatedCode } = await request.json();
 
-    if (!shortCode || typeof shortCode !== 'string' || shortCode.length !== 5) {
+    if (!obfuscatedCode || typeof obfuscatedCode !== 'string' || obfuscatedCode.length !== 5) {
       return NextResponse.json({ message: 'Invalid share code format.' }, { status: 400 });
     }
 
-    // Use admin client to securely query the database from the server-side
+    // Use a service role key to securely query the database from the server-side
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -21,10 +22,13 @@ export async function POST(request: Request) {
         }
       }
     );
+    
+    // Reverse the obfuscation to find the original short_code
+    const shortCode = reverseObfuscateCode(obfuscatedCode);
 
     const { data, error } = await supabase
       .from('fileshare')
-      .select('obfuscated_code, expires_at')
+      .select('id, p2p_offer, expires_at')
       .eq('short_code', shortCode)
       .single();
 
@@ -32,15 +36,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Share code not found or has expired.' }, { status: 404 });
     }
     
-    // Optional: Check for expiration
+    // Check for expiration
     if (data.expires_at && new Date(data.expires_at) < new Date()) {
       return NextResponse.json({ message: 'This share link has expired.' }, { status: 410 });
     }
 
-    return NextResponse.json({ obfuscatedCode: data.obfuscated_code });
+    return NextResponse.json({ p2pOffer: data.p2p_offer, shareId: data.id });
 
-  } catch (e) {
+  } catch (e: any) {
     console.error('API Error:', e);
-    return NextResponse.json({ message: 'An internal server error occurred.' }, { status: 500 });
+    // Provide a more generic error in production but be specific for debugging
+    const errorMessage = e instanceof Error ? e.message : 'An internal server error occurred.';
+    return NextResponse.json({ message: errorMessage }, { status: 500 });
   }
 }
