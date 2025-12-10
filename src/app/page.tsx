@@ -66,7 +66,7 @@ export default function Home() {
          toast({
           variant: 'destructive',
           title: 'Failed to Create Share',
-          description: 'Could not create a new share session. Please try again.',
+          description: error?.message || 'Could not create a new share session. Please check your database schema and RLS policies.',
         });
         setIsConnecting(false);
         return;
@@ -280,3 +280,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
