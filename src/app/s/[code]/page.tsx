@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Download, File as FileIcon, Loader, Scan, ShieldAlert, Wifi, WifiOff } from 'lucide-react';
-import { Progress } from '@/componentsui/progress';
+import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 
@@ -371,3 +371,5 @@ export default function DownloadPage() {
     </div>
   );
 }
+
+    
