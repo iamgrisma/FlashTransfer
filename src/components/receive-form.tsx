@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import { obfuscateCode } from '@/lib/code';
 
 export default function ReceiveForm() {
   const [code, setCode] = useState('');
@@ -23,25 +22,15 @@ export default function ReceiveForm() {
       toast({
         variant: 'destructive',
         title: 'Invalid Code',
-        description: 'Please enter a valid 5-character alphanumeric code.',
+        description: 'Please enter a valid 5-character code.',
       });
       return;
     }
 
     setIsLoading(true);
-
-    try {
-      // Obfuscate on the client and redirect, no API call needed here.
-      const obfuscated = obfuscateCode(code);
-      router.push(`/s/${obfuscated}`);
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'An unexpected error occurred.',
-      });
-      setIsLoading(false);
-    }
+    // Directly redirect to the URL with the code the user entered.
+    // The download page will handle the server-side reverse lookup.
+    router.push(`/s/${code.toLowerCase()}`);
   };
 
   return (
@@ -57,7 +46,7 @@ export default function ReceiveForm() {
                 <Input
                     id="share-code"
                     value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())}
+                    onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
                     placeholder="a1b2c"
                     maxLength={5}
                     className="text-2xl h-14 text-center tracking-[0.3em] font-mono"
