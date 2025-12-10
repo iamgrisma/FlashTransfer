@@ -1,24 +1,34 @@
 "use client";
 
 import { useState } from 'react';
+import QRCode from 'qrcode.react';
 import type { FileDetails } from '@/lib/types';
-import { Check, Copy, File as FileIcon, Loader, X } from 'lucide-react';
+import { Check, Copy, File as FileIcon, Loader, Mail, QrCode, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Separator } from './ui/separator';
 
 interface SharePanelProps {
   fileDetails: FileDetails;
   uploadProgress: number;
-  isUploading: boolean; // Represents "waiting for connection"
+  isUploading: boolean; 
   onReset: () => void;
   shareLink: string;
+  shortCode: string;
 }
 
-export default function SharePanel({ fileDetails, uploadProgress, isUploading, onReset, shareLink }: SharePanelProps) {
+export default function SharePanel({ fileDetails, uploadProgress, isUploading, onReset, shareLink, shortCode }: SharePanelProps) {
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -31,13 +41,19 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   };
   
-  const handleCopy = () => {
-    if (!shareLink) return;
-    navigator.clipboard.writeText(shareLink);
+  const handleCopy = (textToCopy: string) => {
+    navigator.clipboard.writeText(textToCopy);
     setHasCopied(true);
-    toast({ title: 'Success', description: 'Link copied to clipboard!' });
+    toast({ title: 'Success', description: 'Copied to clipboard!' });
     setTimeout(() => setHasCopied(false), 2000);
   };
+
+  const handleShareEmail = () => {
+    const subject = `File Share: ${fileDetails.name}`;
+    const body = `Someone has shared a file with you. Click the link to download:\n\n${shareLink}\n\nOr, go to ${window.location.origin}/join and enter the code: ${shortCode}`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
 
   return (
     <Card className="w-full max-w-lg shadow-lg animate-in fade-in-0 zoom-in-95">
@@ -77,13 +93,44 @@ export default function SharePanel({ fileDetails, uploadProgress, isUploading, o
         )}
 
         {shareLink && (
-          <div className="space-y-2">
-            <Label htmlFor="share-link">Shareable Link</Label>
-            <div className="flex space-x-2">
-              <Input id="share-link" value={shareLink} readOnly className="text-base" />
-              <Button onClick={handleCopy} size="icon" variant="outline" aria-label="Copy link">
-                {hasCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-              </Button>
+          <div className="space-y-4">
+            <Separator />
+             <div className="space-y-2">
+                <Label htmlFor="short-code">Share Code</Label>
+                <div className="flex space-x-2">
+                  <Input id="short-code" value={shortCode} readOnly className="text-2xl h-14 text-center tracking-[0.3em] font-mono" />
+                  <Button onClick={() => handleCopy(shortCode)} size="icon" variant="outline" aria-label="Copy code">
+                    <Copy className="h-5 w-5" />
+                  </Button>
+                </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="share-link">Or Share Full Link</Label>
+              <div className="flex space-x-2">
+                <Input id="share-link" value={shareLink} readOnly />
+                <Button onClick={() => handleCopy(shareLink)} size="icon" variant="outline" aria-label="Copy link">
+                  {hasCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+           
+            <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={handleShareEmail}><Mail className="mr-2"/> Email</Button>
+                
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline"><QrCode className="mr-2" /> QR Code</Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-xs">
+                    <DialogHeader>
+                      <DialogTitle>Scan QR Code</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex items-center justify-center p-4">
+                      {shareLink && <QRCode value={shareLink} size={200} />}
+                    </div>
+                  </DialogContent>
+                </Dialog>
             </div>
           </div>
         )}
