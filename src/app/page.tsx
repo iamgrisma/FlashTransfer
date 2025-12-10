@@ -17,61 +17,64 @@ export default function Home() {
   const [shareLink, setShareLink] = useState('');
   const router = useRouter();
 
-  const handleFileSelect = async (file: File) => {
-    const supabase = createClient();
-    const fileDetails = {
+  const handleFileSelect = (file: File) => {
+    const fileInfo = {
       name: file.name,
       size: file.size,
       type: file.type,
     };
-    setFileDetails(fileDetails);
-    setIsUploading(true); // Indicates we are starting the process
+    setFileDetails(fileInfo);
+    setIsUploading(true);
 
-    const peer = new Peer({
-      initiator: true,
-      trickle: false,
-    });
+    const supabase = createClient();
+    const peer = new Peer({ initiator: true, trickle: false });
+    let shareId: string;
 
-    const { data, error } = await supabase
-      .from('fileshare')
-      .insert([{}])
-      .select('id')
-      .single();
+    peer.on('signal', async (offer) => {
+      // This event fires immediately, so we create the DB record here.
+      if (peer.initiator) {
+        const { data, error } = await supabase
+          .from('fileshare')
+          .insert([{ p2p_offer: JSON.stringify(offer) }])
+          .select('id')
+          .single();
 
-    if (error || !data) {
-      console.error('Error creating share session', error);
-      // Handle error state in UI
-      return;
-    }
-    const shareId = data.id;
-
-    peer.on('signal', async (signalData) => {
-      await supabase
-        .from('fileshare')
-        .update({ p2p_offer: JSON.stringify(signalData) })
-        .eq('id', shareId);
-    });
-
-    const channel = supabase
-      .channel(`fileshare-${shareId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'fileshare', filter: `id=eq.${shareId}` },
-        (payload) => {
-          const { p2p_answer } = payload.new;
-          if (p2p_answer && peer && !peer.destroyed) {
-            peer.signal(JSON.parse(p2p_answer));
-            channel.unsubscribe();
-          }
+        if (error || !data) {
+          console.error('Error creating share session:', error);
+          // TODO: Add user-facing error state
+          return;
         }
-      )
-      .subscribe();
+        shareId = data.id;
+        setShareLink(`${window.location.origin}/${shareId}`);
+
+        // Start listening for the answer only after we have a shareId
+        const channel = supabase
+          .channel(`fileshare-${shareId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'fileshare',
+              filter: `id=eq.${shareId}`,
+            },
+            (payload) => {
+              const { p2p_answer } = payload.new;
+              if (p2p_answer && !peer.destroyed) {
+                peer.signal(JSON.parse(p2p_answer));
+                channel.unsubscribe();
+              }
+            }
+          )
+          .subscribe();
+      }
+    });
 
     peer.on('connect', () => {
       console.log('Peer connected!');
       setIsUploading(false); // Connection established, ready to send
 
-      peer.send(JSON.stringify({ type: 'fileDetails', payload: fileDetails }));
+      peer.send(JSON.stringify({ type: 'fileDetails', payload: fileInfo }));
       
       const chunkSize = 64 * 1024; // 64KB
       let offset = 0;
@@ -86,8 +89,12 @@ export default function Home() {
             setUploadProgress(Math.min((offset / file.size) * 100, 100));
 
             if (offset < file.size) {
-              readSlice();
+              // More chunks to send
+              if (!peer.destroyed) {
+                readSlice();
+              }
             } else {
+              // File sending is complete
               console.log('File sent');
               peer.send(JSON.stringify({ type: 'transferComplete' }));
             }
@@ -108,8 +115,6 @@ export default function Home() {
       console.error('Peer error', err);
       handleReset();
     });
-
-    setShareLink(`${window.location.origin}/${shareId}`);
   };
 
   const handleReset = () => {
@@ -117,6 +122,7 @@ export default function Home() {
     setIsUploading(false);
     setUploadProgress(0);
     setShareLink('');
+    // Any peer cleanup is handled by its own event listeners
   };
 
   return (
