@@ -7,7 +7,7 @@ import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
 import { Send } from 'lucide-react';
 import type { FileDetails } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase';
 import Peer from 'simple-peer';
 
 export default function Home() {
@@ -18,6 +18,7 @@ export default function Home() {
   const router = useRouter();
 
   const handleFileSelect = async (file: File) => {
+    const supabase = createClient();
     const fileDetails = {
       name: file.name,
       size: file.size,

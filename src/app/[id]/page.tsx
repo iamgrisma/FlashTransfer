@@ -3,16 +3,18 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Peer from 'simple-peer';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase';
 import { FileDetails } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download, File as FileIcon, Loader } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { Label } from '@/components/ui/label';
 
 export default function DownloadPage() {
   const params = useParams();
   const shareId = params.id as string;
+  const supabase = createClient();
 
   const [fileDetails, setFileDetails] = useState<FileDetails | null>(null);
   const [status, setStatus] = useState('Connecting...');
@@ -87,7 +89,8 @@ export default function DownloadPage() {
         setReceivedSize(newReceivedSize);
         setFileChunks(prev => [...prev, chunk]);
         if (totalSize > 0) {
-          setDownloadProgress(Math.min((newReceivedSize / totalSize) * 100, 100));
+          const progress = Math.min((newReceivedSize / totalSize) * 100, 100);
+          setDownloadProgress(progress);
         }
         setStatus('Downloading...');
       }
@@ -109,7 +112,7 @@ export default function DownloadPage() {
     return () => {
       peer.destroy();
     };
-  }, [shareId, fileChunks, fileDetails, receivedSize, downloadProgress]);
+  }, [shareId]);
 
   const formatBytes = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
