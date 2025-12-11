@@ -41,7 +41,6 @@ export default function DownloadPage() {
   const filesToDownloadRef = useRef<string[]>([]);
   const currentTransferRef = useRef<CurrentTransfer>(null);
   const savedFilesRef = useRef<Set<string>>(new Set());
-  const answerSentRef = useRef(false);
 
   const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
@@ -83,6 +82,7 @@ export default function DownloadPage() {
     peer.on('connect', () => {
         setSenderOnline(true);
         setStatus('Waiting');
+        toast({ title: 'Connected', description: 'Connection to sender established.' });
     });
 
     peer.on('data', (data) => {
@@ -147,12 +147,13 @@ export default function DownloadPage() {
 
     peer.on('close', () => {
         setSenderOnline(false);
+        // Only show an error if we weren't already in a completed or error state
         if (status !== 'Completed' && status !== 'Error') {
           setError('Sender has disconnected.');
           setStatus('Error');
         }
     });
-  }, [downloadFile, requestNextFileFromQueue, files, status]);
+  }, [downloadFile, requestNextFileFromQueue, files, status, toast]);
   
   const initializeConnection = useCallback(async (code: string) => {
     try {
@@ -177,12 +178,11 @@ export default function DownloadPage() {
         // RECEIVER is NOT the initiator
         const newPeer = new Peer({ initiator: false, trickle: false });
         peerRef.current = newPeer;
-        answerSentRef.current = false;
 
         // RECEIVER: When the answer signal is ready, send it to the sender
         newPeer.on('signal', (answer) => {
-            if (answerSentRef.current || !answer || (answer as any).renegotiate || (answer as any).candidate) return;
-            answerSentRef.current = true;
+            // This event can fire multiple times, but we only care about the 'answer' type
+            if (answer.type !== 'answer') return;
 
             const channel = supabase.channel(`share-session-${shareId}`);
             channelRef.current = channel;
@@ -196,11 +196,11 @@ export default function DownloadPage() {
                 }
             });
         });
-
-        // RECEIVER: Signal with the offer from the sender
-        newPeer.signal(p2pOffer);
         
         setupPeerEvents(newPeer);
+        
+        // RECEIVER: Signal with the offer from the sender
+        newPeer.signal(JSON.parse(p2pOffer));
 
     } catch (err: any) {
          setError(err.message || 'An unexpected error occurred.');
@@ -214,6 +214,7 @@ export default function DownloadPage() {
       initializeConnection(obfuscatedCode);
     }
     
+    // Cleanup function
     return () => {
         peerRef.current?.destroy();
         if (channelRef.current) {
@@ -226,7 +227,7 @@ export default function DownloadPage() {
   const requestFiles = (fileNames: string[]) => {
     const filesToRequest = fileNames.filter(name => !savedFilesRef.current.has(name) && !filesToDownloadRef.current.includes(name));
     
-    if (fileNames.every(name => savedFilesRef.current.has(name))) {
+    if (fileNames.length > 0 && fileNames.every(name => savedFilesRef.current.has(name))) {
         toast({title: 'Already Downloaded', description: 'All selected files have already been downloaded.'});
         return;
     }
