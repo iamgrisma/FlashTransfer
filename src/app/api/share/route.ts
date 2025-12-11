@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
 import { reverseObfuscateCode } from '@/lib/code';
 
 export async function POST(request: Request) {
@@ -11,17 +11,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Invalid share code format.' }, { status: 400 });
     }
 
-    // Use a service role key to securely query the database from the server-side
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-      }
-    );
+    const supabase = createClient();
     
     // Reverse the obfuscation to find the original short_code
     const shortCode = reverseObfuscateCode(obfuscatedCode);

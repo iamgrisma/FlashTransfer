@@ -7,7 +7,7 @@ import SharePanel from '@/components/share-panel';
 import ReceiveForm from '@/components/receive-form';
 import { Send, Download, Zap, Lock, Share2 } from 'lucide-react';
 import type { FileDetails } from '@/lib/types';
-import { createClient } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
@@ -273,5 +273,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
