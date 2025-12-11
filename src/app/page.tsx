@@ -25,8 +25,7 @@ export default function Home() {
   const [transferProgress, setTransferProgress] = useState<{ [fileName: string]: number }>({});
 
   const handleReset = useCallback(() => {
-    console.log('handleReset called. Destroying peer and cleaning up session.');
-    console.trace('handleReset trace'); // Stack trace to find caller
+    console.error('handleReset CALLED. Stack trace:', new Error().stack);
     peerRef.current?.destroy();
     peerRef.current = null;
     if (channelRef.current) {
