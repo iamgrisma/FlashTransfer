@@ -143,11 +143,14 @@ export default function DownloadPage() {
                 if (completedFile) {
                   setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
                 }
+                
                 const allSelectedFiles = selectedFiles.length > 0 ? selectedFiles : files.map(f => f.name);
-                const allDone = allSelectedFiles.every(fileName => (downloadProgress[fileName] || 0) >= 100);
+                const allSelectedAndDownloaded = allSelectedFiles.every(fileName => (downloadProgress[fileName] || 0) >= 100);
 
-                if (allDone) {
+                if (allSelectedAndDownloaded) {
                     setStatus('Completed');
+                } else if(Object.values(downloadProgress).some(p => p > 0 && p < 100)){
+                    setStatus('Receiving');
                 } else {
                     setStatus('Waiting');
                 }
@@ -175,7 +178,7 @@ export default function DownloadPage() {
       peerRef.current = null;
       clearInterval(pingCheck);
     };
-  }, [obfuscatedCode]);
+  }, [obfuscatedCode, status]);
 
 
   const requestFile = (fileName: string) => {
@@ -192,7 +195,10 @@ export default function DownloadPage() {
 
   const downloadSingleFile = (fileName: string) => {
     const file = files.find(f => f.name === fileName);
-    if (!file || !fileChunksRef.current[fileName]) return;
+    if (!file || !fileChunksRef.current[fileName] || fileChunksRef.current[fileName].length === 0) {
+        toast({ title: 'Download Failed', description: `File data for ${fileName} not found. Please request the file again.`, variant: 'destructive'});
+        return;
+    };
 
     const fileBlob = new Blob(fileChunksRef.current[fileName], { type: file.type });
     const url = URL.createObjectURL(fileBlob);
@@ -379,3 +385,5 @@ export default function DownloadPage() {
     </div>
   );
 }
+
+    
