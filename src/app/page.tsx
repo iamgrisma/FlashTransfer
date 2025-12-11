@@ -100,6 +100,49 @@ export default function Home() {
         .subscribe();
     });
 
+    const sendFile = (file: File, peer: Peer.Instance) => {
+        const chunkSize = 64 * 1024; // 64KB
+        let offset = 0;
+        
+        if (peer.destroyed) return;
+        peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name } }));
+
+        const readSlice = () => {
+            if (!file || peer.destroyed) return;
+            const slice = file.slice(offset, offset + chunkSize);
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                if (e.target?.result && !peer.destroyed) {
+                    try {
+                        const chunk = e.target.result as ArrayBuffer;
+                        // Important: Send chunk data as an array of numbers to ensure JSON compatibility
+                        peer.send(JSON.stringify({ type: 'fileChunk', payload: { fileName: file.name, chunk: Array.from(new Uint8Array(chunk)) } }));
+                        offset += chunk.byteLength;
+                        
+                        const progress = Math.min((offset / file.size) * 100, 100);
+                        setTransferProgress(prev => ({ ...prev, [file.name]: progress }));
+
+                        if (offset < file.size) {
+                            readSlice();
+                        } else {
+                            console.log('File sent completely:', file.name);
+                            if (!peer.destroyed) {
+                                peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
+                            }
+                        }
+                    } catch(err) {
+                        console.error("Error sending file chunk:", err);
+                        toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
+                        handleReset();
+                    }
+                }
+            };
+            reader.readAsArrayBuffer(slice);
+        };
+        readSlice();
+    }
+
     newPeer.on('connect', () => {
       console.log('Peer connected!');
       setIsConnecting(false);
@@ -134,56 +177,13 @@ export default function Home() {
             }
           }
         } catch (e) {
-          // Ignore non-json data
+          // Ignore non-json data which could be raw file chunks if we change the protocol
         }
       });
     });
-
-    const sendFile = (file: File, peer: Peer.Instance) => {
-        const chunkSize = 64 * 1024; // 64KB
-        let offset = 0;
-        
-        if (peer.destroyed) return;
-        peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name } }));
-
-        const readSlice = () => {
-            if (!file || peer.destroyed) return;
-            const slice = file.slice(offset, offset + chunkSize);
-            const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                if (e.target?.result && !peer.destroyed) {
-                    try {
-                        const chunk = e.target.result as ArrayBuffer;
-                        peer.send(JSON.stringify({ type: 'fileChunk', payload: { fileName: file.name, chunk: Array.from(new Uint8Array(chunk)) } }));
-                        offset += chunk.byteLength;
-                        
-                        const progress = Math.min((offset / file.size) * 100, 100);
-                        setTransferProgress(prev => ({ ...prev, [file.name]: progress }));
-
-                        if (offset < file.size) {
-                            readSlice();
-                        } else {
-                            console.log('File sent completely:', file.name);
-                            if (!peer.destroyed) {
-                                peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
-                            }
-                        }
-                    } catch(err) {
-                        console.error("Error sending file chunk:", err);
-                        toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
-                        handleReset();
-                    }
-                }
-            };
-            reader.readAsArrayBuffer(slice);
-        };
-        readSlice();
-    }
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
-      handleReset();
     });
 
     newPeer.on('error', (err) => {
@@ -279,3 +279,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

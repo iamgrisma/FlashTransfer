@@ -64,7 +64,7 @@ export default function DownloadPage() {
   
   const requestNextFileFromQueue = useCallback(() => {
     if (filesToDownloadRef.current.length > 0) {
-        const nextFileName = filesToDownloadRef.current.shift();
+        const nextFileName = filesToDownloadRef.current[0]; // Peek at the next file
         if (nextFileName) {
             if (peerRef.current && !peerRef.current.destroyed) {
                 peerRef.current.send(JSON.stringify({ type: 'requestFile', payload: { fileName: nextFileName } }));
@@ -201,9 +201,14 @@ export default function DownloadPage() {
                 const completedFile = files.find(f => f.name === completedFileName);
                 if (completedFile) {
                     setDownloadProgress(prev => ({ ...prev, [completedFileName]: 100 }));
-                    downloadSingleFile(completedFileName);
+                    
+                    // Only download if it was in the current download queue
+                    if (filesToDownloadRef.current[0] === completedFileName) {
+                      downloadSingleFile(completedFileName);
+                      filesToDownloadRef.current.shift(); // Remove from queue
+                      requestNextFileFromQueue(); // Request next file
+                    }
                 }
-                requestNextFileFromQueue();
                 break;
         }
     });
@@ -256,17 +261,33 @@ export default function DownloadPage() {
 
 
   const handleDownloadSelected = () => {
-    const filesToDownload = files.filter(f => selectedFiles.includes(f.name));
-    filesToDownloadRef.current = filesToDownload.map(f => f.name);
-    if(filesToDownloadRef.current.length > 0) {
+    const filesToDownload = files.filter(f => selectedFiles.includes(f.name) && (downloadProgress[f.name] || 0) < 100);
+    const isQueueRunning = filesToDownloadRef.current.length > 0;
+    
+    // Add new files to the queue without duplicating
+    filesToDownload.forEach(f => {
+      if (!filesToDownloadRef.current.includes(f.name)) {
+        filesToDownloadRef.current.push(f.name);
+      }
+    });
+
+    if(!isQueueRunning && filesToDownloadRef.current.length > 0) {
       requestNextFileFromQueue();
     }
   }
 
   const handleDownloadAll = () => {
-    setSelectedFiles(files.map(f => f.name));
-    filesToDownloadRef.current = files.map(f => f.name);
-    if(filesToDownloadRef.current.length > 0) {
+    const allFiles = files.map(f => f.name);
+    setSelectedFiles(allFiles);
+    const isQueueRunning = filesToDownloadRef.current.length > 0;
+    
+    allFiles.forEach(name => {
+        if(!filesToDownloadRef.current.includes(name) && (downloadProgress[name] || 0) < 100) {
+            filesToDownloadRef.current.push(name);
+        }
+    });
+
+    if(!isQueueRunning && filesToDownloadRef.current.length > 0) {
       requestNextFileFromQueue();
     }
   }
@@ -426,3 +447,5 @@ export default function DownloadPage() {
     </div>
   );
 }
+
+    
