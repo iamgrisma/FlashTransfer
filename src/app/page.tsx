@@ -122,11 +122,15 @@ export default function Home() {
       const newShortCode = generateShareCode();
       const newObfuscatedCode = obfuscateCode(newShortCode);
 
+      // Calculate expiration (e.g., 24 hours from now)
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
       const { data, error } = await supabase
         .from('fileshare')
         .insert([{
           short_code: newShortCode,
-          p2p_offer: JSON.stringify(offer)
+          p2p_offer: JSON.stringify(offer),
+          expires_at: expiresAt
         }])
         .select('id')
         .single();

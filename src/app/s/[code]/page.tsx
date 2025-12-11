@@ -158,7 +158,10 @@ export default function DownloadPage() {
 
   const initializeConnection = useCallback(async (code: string) => {
     try {
-      const response = await fetch('/api/share', {
+      // Use Cloudflare Worker endpoint (update to production URL when deployed)
+      const workerUrl = 'http://127.0.0.1:8787';
+
+      const response = await fetch(workerUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ obfuscatedCode: code }),
