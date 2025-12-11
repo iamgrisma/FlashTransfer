@@ -122,7 +122,7 @@ export default function DownloadPage() {
                     if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
                         const completedFile = files.find(f => f.name === payload.fileName);
                         if (completedFile) {
-                            downloadFile(payload.fileName, currentTransferref.current.chunks, completedFile.type);
+                            downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
                             setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
                         }
                         currentTransferRef.current = null;
@@ -138,7 +138,6 @@ export default function DownloadPage() {
 
     peer.on('close', () => {
         setSenderOnline(false);
-        setStatus('Waiting'); // Allow reconnection attempts
     });
 
     peer.on('error', (err) => {
@@ -174,7 +173,7 @@ export default function DownloadPage() {
 
         // RECEIVER: When the answer signal is ready, send it to the sender
         newPeer.on('signal', (answer) => {
-            if (answerSentRef.current || !answer) return;
+            if (answerSentRef.current || !answer || (answer as any).renegotiate || (answer as any).candidate) return;
             answerSentRef.current = true;
 
             const channel = supabase.channel(`share-session-${shareId}`);
@@ -207,13 +206,6 @@ export default function DownloadPage() {
     
     initializeConnection();
 
-    return () => {
-        peerRef.current?.destroy();
-        if (channelRef.current) {
-            channelRef.current.unsubscribe();
-            channelRef.current = null;
-        }
-    };
   }, [obfuscatedCode, initializeConnection]);
 
 
