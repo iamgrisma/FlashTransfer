@@ -150,12 +150,21 @@ export default function Home() {
       const channel = supabase.channel(`share-session-${newShareId}`);
       channelRef.current = channel;
 
+      let hasProcessedAnswer = false;
+
       channel.on('broadcast', { event: 'answer' }, ({ payload }) => {
         console.log('SENDER: Received answer signal from Receiver via Supabase.');
+
+        if (hasProcessedAnswer) {
+          console.warn('SENDER: Already processed an answer. Ignoring duplicate.');
+          return;
+        }
+
         if (peerRef.current && !peerRef.current.destroyed && payload.answer) {
           console.log('SENDER: Signaling peer with answer.');
           try {
             peerRef.current.signal(payload.answer);
+            hasProcessedAnswer = true;
           } catch (err) {
             console.error('SENDER: Error signaling peer with answer:', err);
           }
