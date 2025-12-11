@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
 import ReceiveForm from '@/components/receive-form';
@@ -12,215 +12,216 @@ import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
 import { generateShareCode, obfuscateCode } from '@/lib/code';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+
+type PeerConnection = {
+  peer: Peer.Instance;
+  receiverId: string;
+};
 
 export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [transferProgress, setTransferProgress] = useState<{ [key: string]: number }>({});
-  const [shareLink, setShareLink] = useState('');
+  const [shareId, setShareId] = useState<string | null>(null);
   const [shareCode, setShareCode] = useState('');
   
-  const peerRef = useRef<Peer.Instance | null>(null);
+  const peersRef = useRef<Map<string, Peer.Instance>>(new Map());
   const { toast } = useToast();
-  const offerSentRef = useRef(false);
+  const mainChannelRef = useRef<RealtimeChannel | null>(null);
+  const [transferProgress, setTransferProgress] = useState<{ [key: string]: { [fileName: string]: number } }>({});
 
-  const handleReset = () => {
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
+  const handleReset = useCallback(() => {
+    peersRef.current.forEach(peer => peer.destroy());
+    peersRef.current.clear();
+    if (mainChannelRef.current) {
+        mainChannelRef.current.unsubscribe();
+        mainChannelRef.current = null;
     }
     setFiles([]);
-    setIsConnecting(false);
-    setTransferProgress({});
-    setShareLink('');
+    setShareId(null);
     setShareCode('');
-    offerSentRef.current = false;
+    setTransferProgress({});
+  }, []);
+
+  const createShareSession = useCallback(async (initialFiles: File[]) => {
+    const supabase = createClient();
+    const newShortCode = generateShareCode();
+    const newObfuscatedCode = obfuscateCode(newShortCode);
+
+    const { data, error } = await supabase
+      .from('fileshare')
+      .insert([{ short_code: newShortCode }])
+      .select('id')
+      .single();
+
+    if (error || !data) {
+      console.error('Error creating share session:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to Create Share',
+        description: `Could not create a new share session. ${error?.message || 'Please check your network settings.'}`,
+      });
+      return;
+    }
+    
+    const newShareId = data.id;
+    setShareId(newShareId);
+    setFiles(initialFiles);
+    setShareCode(newObfuscatedCode);
+
+    const channel = supabase.channel(`share-session-${newShareId}`);
+    mainChannelRef.current = channel;
+
+    channel.on('broadcast', { event: 'request-offer' }, async (message) => {
+        const { receiverId, offer } = message.payload;
+
+        if (peersRef.current.has(receiverId)) {
+            console.log("Peer already exists for receiver:", receiverId);
+            return;
+        }
+
+        const newPeer = new Peer({ initiator: false, trickle: false });
+        peersRef.current.set(receiverId, newPeer);
+
+        newPeer.on('signal', (answer) => {
+            channel.send({
+                type: 'broadcast',
+                event: 'answer',
+                payload: { receiverId, answer },
+            });
+        });
+        
+        newPeer.on('connect', () => {
+            console.log('Peer connected with receiver:', receiverId);
+            const filesDetails: FileDetails[] = (files || []).map(file => ({
+                name: file.name,
+                size: file.size,
+                type: file.type,
+            }));
+            if (!newPeer.destroyed) {
+                newPeer.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
+            }
+        });
+
+        newPeer.on('data', (chunk) => {
+            try {
+              const data = JSON.parse(chunk.toString());
+              if (data.type === 'requestFile') {
+                const fileToTransfer = files.find(f => f.name === data.payload.fileName);
+                if (fileToTransfer) {
+                  sendFile(fileToTransfer, newPeer, receiverId);
+                }
+              }
+            } catch (e) {}
+        });
+
+        newPeer.on('close', () => {
+            console.log('Peer disconnected from receiver:', receiverId);
+            peersRef.current.delete(receiverId);
+            setTransferProgress(prev => {
+                const newProgress = {...prev};
+                delete newProgress[receiverId];
+                return newProgress;
+            });
+            toast({ title: 'Recipient Disconnected', description: 'A file transfer session has ended.'});
+        });
+
+        newPeer.on('error', (err) => {
+            console.error('Peer error with receiver:', receiverId, err);
+            peersRef.current.delete(receiverId);
+            if (!newPeer.destroyed) {
+                toast({ variant: 'destructive', title: 'Connection Error', description: `An error occurred with a receiver.` });
+            }
+        });
+
+        newPeer.signal(offer);
+    }).subscribe();
+
+  }, [toast, files]);
+
+  const sendFile = (file: File, peer: Peer.Instance, receiverId: string) => {
+      const chunkSize = 64 * 1024;
+      let offset = 0;
+      
+      if (peer.destroyed) return;
+      peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name, fileSize: file.size } }));
+
+      const readSlice = () => {
+          if (!file || peer.destroyed) return;
+          const slice = file.slice(offset, offset + chunkSize);
+          const reader = new FileReader();
+          
+          reader.onload = (e) => {
+              if (e.target?.result && !peer.destroyed) {
+                  try {
+                      const chunk = e.target.result as ArrayBuffer;
+                      peer.send(new Uint8Array(chunk));
+                      offset += chunk.byteLength;
+                      
+                      const progress = Math.min((offset / file.size) * 100, 100);
+                      setTransferProgress(prev => ({
+                        ...prev,
+                        [receiverId]: { ...prev[receiverId], [file.name]: progress }
+                      }));
+
+                      if (offset < file.size) {
+                          readSlice();
+                      } else {
+                          if (!peer.destroyed) {
+                              peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
+                          }
+                      }
+                  } catch(err) {
+                      console.error("Error sending file chunk:", err);
+                  }
+              }
+          };
+          reader.readAsArrayBuffer(slice);
+      };
+      readSlice();
   };
 
   const handleFileSelect = (selectedFiles: FileList) => {
     const filesArray = Array.from(selectedFiles);
-    setFiles(filesArray);
-    setIsConnecting(true);
-
-    if (peerRef.current) {
-      peerRef.current.destroy();
-    }
-    
-    offerSentRef.current = false;
-    const newPeer = new Peer({ initiator: true, trickle: false });
-    peerRef.current = newPeer;
-    
-    newPeer.on('signal', async (offer) => {
-      if (newPeer.destroyed || offer.type !== 'offer' || offerSentRef.current) {
-          return;
-      }
-      offerSentRef.current = true;
-      
-      const supabase = createClient();
-      const newShortCode = generateShareCode();
-      const newObfuscatedCode = obfuscateCode(newShortCode);
-      
-      const { data, error } = await supabase
-        .from('fileshare')
-        .insert([{ 
-            p2p_offer: JSON.stringify(offer), 
-            short_code: newShortCode,
-        }])
-        .select('id')
-        .single();
-
-      if (error || !data) {
-        console.error('Error creating share session:', error);
-         toast({
-          variant: 'destructive',
-          title: 'Failed to Create Share',
-          description: `Could not create a new share session. ${error?.message || 'Please check your network and database settings.'}`,
+    if (!shareId) {
+        createShareSession(filesArray);
+    } else {
+        const newFiles = [...files, ...filesArray.filter(f => !files.some(existing => existing.name === f.name))];
+        setFiles(newFiles);
+        const filesDetails: FileDetails[] = newFiles.map(file => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+        }));
+        peersRef.current.forEach(peer => {
+            if (!peer.destroyed) {
+                peer.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
+            }
         });
-        setIsConnecting(false);
-        return;
-      }
-      
-      setShareLink(`${window.location.origin}/s/${newObfuscatedCode}`);
-      setShareCode(newObfuscatedCode);
-
-      const shareId = data.id;
-      const channel = supabase
-        .channel(`fileshare-${shareId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'fileshare',
-            filter: `id=eq.${shareId}`,
-          },
-          (payload) => {
-            const { p2p_answer } = payload.new as { p2p_answer: string };
-            if (p2p_answer && !newPeer.destroyed) {
-              try {
-                newPeer.signal(JSON.parse(p2p_answer));
-              } catch (err) {
-                 console.error("Failed to apply answer signal", err);
-                 if (!newPeer.destroyed) {
-                    toast({ variant: 'destructive', title: 'Connection Failed', description: 'Could not establish connection with receiver.'});
-                    handleReset();
-                 }
-              }
-              channel.unsubscribe();
-            }
-          }
-        )
-        .subscribe();
-    });
-
-    const sendFile = (file: File, peer: Peer.Instance) => {
-        const chunkSize = 64 * 1024; // 64KB
-        let offset = 0;
-        
-        if (peer.destroyed) return;
-        peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name, fileSize: file.size } }));
-
-        const readSlice = () => {
-            if (!file || peer.destroyed) return;
-            const slice = file.slice(offset, offset + chunkSize);
-            const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                if (e.target?.result && !peer.destroyed) {
-                    try {
-                        const chunk = e.target.result as ArrayBuffer;
-                        peer.send(new Uint8Array(chunk));
-                        offset += chunk.byteLength;
-                        
-                        const progress = Math.min((offset / file.size) * 100, 100);
-                        setTransferProgress(prev => ({ ...prev, [file.name]: progress }));
-
-                        if (offset < file.size) {
-                            readSlice();
-                        } else {
-                            console.log('File sent completely:', file.name);
-                            if (!peer.destroyed) {
-                                peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
-                            }
-                        }
-                    } catch(err) {
-                        console.error("Error sending file chunk:", err);
-                        if(!peer.destroyed){
-                           toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
-                           handleReset();
-                        }
-                    }
-                }
-            };
-            reader.readAsArrayBuffer(slice);
-        };
-        readSlice();
     }
-
-    newPeer.on('connect', () => {
-      console.log('Peer connected!');
-      setIsConnecting(false);
-
-      if (filesArray.length === 0) return;
-
-      const filesDetails: FileDetails[] = filesArray.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      }));
-      
-      if (!newPeer.destroyed) {
-        newPeer.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
-      }
-      
-      const pingInterval = setInterval(() => {
-        if (!newPeer.destroyed) {
-          newPeer.send(JSON.stringify({ type: 'ping' }));
-        } else {
-          clearInterval(pingInterval);
-        }
-      }, 2000);
-
-      newPeer.on('data', (chunk) => {
-        try {
-          const data = JSON.parse(chunk.toString());
-          if (data.type === 'requestFile') {
-            const fileToTransfer = files.find(f => f.name === data.payload.fileName);
-            if (fileToTransfer) {
-              sendFile(fileToTransfer, newPeer);
-            }
-          }
-        } catch (e) {
-          // This will be raw chunk data, so we ignore parse errors
-        }
-      });
-    });
-    
-    newPeer.on('close', () => {
-      console.log('Peer disconnected');
-      toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
-    });
-
-    newPeer.on('error', (err) => {
-      console.error('Peer error', err);
-      if (!newPeer.destroyed) {
-        toast({ variant: 'destructive', title: 'Connection Error', description: `An unexpected connection error occurred: ${err.message}`});
-        handleReset();
-      }
-    });
   };
+  
+  const combinedTransferProgress = Array.from(peersRef.current.keys()).reduce((acc, receiverId) => {
+    const receiverProgress = transferProgress[receiverId] || {};
+    Object.entries(receiverProgress).forEach(([fileName, progress]) => {
+      if (!acc[fileName] || progress > acc[fileName]) {
+        acc[fileName] = progress;
+      }
+    });
+    return acc;
+  }, {} as { [key: string]: number });
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 pt-24 selection:bg-primary/20">
       <main className="w-full flex-1 flex flex-col items-center justify-center container mx-auto">
-        {files.length > 0 ? (
+        {shareId ? (
           <SharePanel
             files={files}
-            transferProgress={transferProgress}
-            isConnecting={isConnecting}
+            transferProgress={combinedTransferProgress}
+            isConnecting={false} // This state is now per-peer
             onReset={handleReset}
-            shareLink={shareLink}
+            shareLink={`${window.location.origin}/s/${shareCode}`}
             shortCode={shareCode}
+            onFileAdd={handleFileSelect}
           />
         ) : (
           <>
@@ -281,4 +282,5 @@ export default function Home() {
     </div>
   );
 }
+
     

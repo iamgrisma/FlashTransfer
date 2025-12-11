@@ -3,7 +3,7 @@
 
 import { useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
-import { UploadCloud } from 'lucide-react';
+import { UploadCloud, PlusCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -11,9 +11,10 @@ import { cn } from '@/lib/utils';
 
 interface FileUploadProps {
   onFileSelect: (files: FileList) => void;
+  isSessionActive?: boolean;
 }
 
-export default function FileUpload({ onFileSelect }: FileUploadProps) {
+export default function FileUpload({ onFileSelect, isSessionActive = false }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -24,7 +25,7 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
     } else {
       toast({
         title: 'No Files Selected',
-        description: 'Please select one or more files to upload.',
+        description: 'Please select one or more files.',
         variant: 'destructive',
       });
     }
@@ -59,7 +60,7 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
     const files = e.target.files;
     handleFiles(files);
     // Reset file input to allow selecting the same file again
-    e.target.value = '';
+    if(e.target) e.target.value = '';
   };
 
   const handleClick = () => {
@@ -80,11 +81,15 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
       <CardContent className="p-10 text-center cursor-pointer" onClick={handleClick}>
         <div className="flex flex-col items-center justify-center space-y-4">
           <div className="p-4 bg-primary/10 rounded-full border-8 border-primary/5">
-            <UploadCloud className={cn('h-12 w-12 text-primary transition-colors', isDragging && 'text-primary-foreground')} />
+            {isSessionActive ? (
+              <PlusCircle className={cn('h-12 w-12 text-primary transition-colors', isDragging && 'text-primary-foreground')} />
+            ) : (
+              <UploadCloud className={cn('h-12 w-12 text-primary transition-colors', isDragging && 'text-primary-foreground')} />
+            )}
           </div>
           <div className="space-y-1">
             <p className="text-lg font-semibold text-foreground">
-              Drag & drop files here
+              {isSessionActive ? "Add more files" : "Drag & drop files here"}
             </p>
             <p className="text-sm text-muted-foreground">or click to browse and upload</p>
           </div>
@@ -100,3 +105,5 @@ export default function FileUpload({ onFileSelect }: FileUploadProps) {
     </Card>
   );
 }
+
+    

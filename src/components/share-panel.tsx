@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import QRCode from 'qrcode.react';
-import type { FileDetails } from '@/lib/types';
+import FileUpload from '@/components/file-upload';
 import { Check, Copy, File as FileIcon, Loader, Mail, QrCode, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,9 +27,10 @@ interface SharePanelProps {
   onReset: () => void;
   shareLink: string;
   shortCode: string;
+  onFileAdd: (files: FileList) => void;
 }
 
-export default function SharePanel({ files, transferProgress, isConnecting, onReset, shareLink, shortCode }: SharePanelProps) {
+export default function SharePanel({ files, transferProgress, isConnecting, onReset, shareLink, shortCode, onFileAdd }: SharePanelProps) {
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -65,7 +66,7 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
             <div>
                 <CardTitle className="font-headline">Share Files</CardTitle>
                 <CardDescription>
-                  {isConnecting ? "Generating share code..." : (isTransferring ? "Transfer in progress..." : "Ready to transfer. Waiting for recipient...")}
+                  {isConnecting ? "Generating share session..." : (isTransferring ? "Transfer in progress..." : "Ready to transfer. Waiting for receivers...")}
                 </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={onReset} aria-label="Cancel share">
@@ -108,6 +109,10 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
               <Progress value={totalProgress} />
           </div>
         )}
+
+        <Separator />
+        
+        <FileUpload onFileSelect={onFileAdd} isSessionActive={true} />
 
         {shareLink && (
           <div className="space-y-4 animate-in fade-in-0">
@@ -154,9 +159,11 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
       </CardContent>
       <CardFooter>
           <p className="text-xs text-muted-foreground text-center w-full">
-            Keep this window open until all file transfers are complete.
+            Keep this window open. Receivers can connect as long as this tab is open.
           </p>
       </CardFooter>
     </Card>
   );
 }
+
+    

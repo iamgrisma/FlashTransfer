@@ -14,6 +14,7 @@ import { Download, File as FileIcon, Loader, Scan, ShieldAlert, Wifi, WifiOff } 
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 type TransferStatus = 'Connecting' | 'Waiting' | 'Receiving' | 'Completed' | 'Error' | 'Scanning';
 type CurrentTransfer = {
@@ -35,12 +36,12 @@ export default function DownloadPage() {
   const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
   
   const peerRef = useRef<Peer.Instance | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const { toast } = useToast();
   const lastPing = useRef(Date.now());
   const filesToDownloadRef = useRef<string[]>([]);
   const currentTransferRef = useRef<CurrentTransfer>(null);
   const savedFilesRef = useRef<Set<string>>(new Set());
-  const answerSentRef = useRef(false);
 
   const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
@@ -82,136 +83,140 @@ export default function DownloadPage() {
     if (!obfuscatedCode) return;
 
     const supabase = createClient();
-    let peer: Peer.Instance | null = null;
+    const receiverId = `receiver-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     let pingCheckInterval: NodeJS.Timeout | null = null;
 
     const cleanup = () => {
-        if (peerRef.current) {
-            peerRef.current.destroy();
-            peerRef.current = null;
-        }
-        if (pingCheckInterval) {
-            clearInterval(pingCheckInterval);
-        }
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
+      }
+      if (pingCheckInterval) {
+        clearInterval(pingCheckInterval);
+      }
     };
     
-    const initializePeer = (offerString: string, shareId: string) => {
-        if (peerRef.current) peerRef.current.destroy();
+    const initializePeer = (shareId: string) => {
+      if (peerRef.current) peerRef.current.destroy();
 
-        try {
-            const offer = JSON.parse(offerString);
-            peer = new Peer({ initiator: false, trickle: false });
-            peerRef.current = peer;
-            answerSentRef.current = false;
+      try {
+        const channel = supabase.channel(`share-session-${shareId}`);
+        channelRef.current = channel;
 
-            peer.on('signal', async (signalData) => {
-                if (peer?.destroyed || answerSentRef.current) return;
-                
-                if(signalData && signalData.type === 'answer') {
-                  answerSentRef.current = true;
-                  const { error: updateError } = await supabase
-                    .from('fileshare')
-                    .update({ p2p_answer: JSON.stringify(signalData) })
-                    .eq('id', shareId);
-    
-                  if (updateError) {
-                     setError('Failed to send response to sender. Please try reloading.');
-                     setStatus('Error');
-                     console.error('Supabase update error:', updateError);
-                  }
-                }
+        const newPeer = new Peer({ initiator: true, trickle: false });
+        peerRef.current = newPeer;
+        
+        channel.on('broadcast', { event: 'answer' }, (message) => {
+          if (message.payload.receiverId === receiverId) {
+            newPeer.signal(message.payload.answer);
+          }
+        });
+
+        channel.subscribe(status => {
+          if (status === 'SUBSCRIBED') {
+            newPeer.on('signal', offer => {
+              channel.send({
+                type: 'broadcast',
+                event: 'request-offer',
+                payload: { receiverId, offer },
+              });
             });
-            
-            peer.on('connect', () => {
-              setSenderOnline(true);
-              lastPing.current = Date.now();
-              setStatus('Waiting');
-            });
-    
-            peer.on('data', (data) => {
-                setSenderOnline(true);
-                lastPing.current = Date.now();
-    
-                if (data instanceof Uint8Array) {
-                    if (currentTransferRef.current) {
-                        const { fileName, fileSize } = currentTransferRef.current;
-                        currentTransferRef.current.chunks.push(data);
-                        currentTransferRef.current.receivedSize += data.byteLength;
-                        const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
-                        setDownloadProgress(prev => ({...prev, [fileName]: progress}));
-                    }
-                    return;
-                }
-    
-                try {
-                    const parsedData = JSON.parse(data.toString());
-                    const { type, payload } = parsedData;
-    
-                    switch (type) {
-                        case 'ping':
-                            break;
-                        case 'fileDetails':
-                            const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
-                            setFiles(newFiles);
-                            break;
-                        case 'transferStart':
-                            currentTransferRef.current = {
-                                fileName: payload.fileName,
-                                fileSize: payload.fileSize,
-                                receivedSize: 0,
-                                chunks: []
-                            };
-                            setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
-                            break;
-                        case 'transferComplete':
-                            if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
-                                const completedFile = files.find(f => f.name === payload.fileName);
-                                if (completedFile) {
-                                    downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
-                                    setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
-                                }
-                                currentTransferRef.current = null;
-                                filesToDownloadRef.current.shift();
-                                requestNextFileFromQueue();
-                            }
-                            break;
-                    }
-                } catch (e) {
-                     console.error("Error parsing incoming data:", e);
-                }
-            });
-    
-            peer.on('close', () => {
-              setSenderOnline(false);
-              if (status !== 'Completed' && status !== 'Error') {
-                setError('The sender has disconnected.');
+          }
+        });
+        
+        newPeer.on('connect', () => {
+          setSenderOnline(true);
+          lastPing.current = Date.now();
+          setStatus('Waiting');
+        });
+
+        newPeer.on('data', (data) => {
+          setSenderOnline(true);
+          lastPing.current = Date.now();
+
+          if (data instanceof Uint8Array) {
+              if (currentTransferRef.current) {
+                  const { fileName, fileSize } = currentTransferRef.current;
+                  currentTransferRef.current.chunks.push(data);
+                  currentTransferRef.current.receivedSize += data.byteLength;
+                  const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
+                  setDownloadProgress(prev => ({...prev, [fileName]: progress}));
+              }
+              return;
+          }
+
+          try {
+              const parsedData = JSON.parse(data.toString());
+              const { type, payload } = parsedData;
+
+              switch (type) {
+                  case 'ping':
+                      break;
+                  case 'fileDetails':
+                      const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
+                      setFiles(newFiles);
+                      break;
+                  case 'transferStart':
+                      currentTransferRef.current = {
+                          fileName: payload.fileName,
+                          fileSize: payload.fileSize,
+                          receivedSize: 0,
+                          chunks: []
+                      };
+                      setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
+                      break;
+                  case 'transferComplete':
+                      if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
+                          const completedFile = files.find(f => f.name === payload.fileName);
+                          if (completedFile) {
+                              downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
+                              setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
+                          }
+                          currentTransferRef.current = null;
+                          filesToDownloadRef.current.shift();
+                          requestNextFileFromQueue();
+                      }
+                      break;
+              }
+          } catch (e) {
+                console.error("Error parsing incoming data:", e);
+          }
+        });
+
+        newPeer.on('close', () => {
+          setSenderOnline(false);
+          if (status !== 'Completed' && status !== 'Error') {
+            setError('The sender has disconnected.');
+            setStatus('Error');
+          }
+        });
+
+        newPeer.on('error', (err) => {
+          console.error('Peer error', err);
+          if (newPeer && !newPeer.destroyed) {
+            setSenderOnline(false);
+            if (status !== 'Completed' && status !== 'Error') {
+                setError(`A connection error occurred: ${err.message}. The sender may have left.`);
                 setStatus('Error');
-              }
-            });
-    
-            peer.on('error', (err) => {
-              console.error('Peer error', err);
-              if (peer && !peer.destroyed) {
-                setSenderOnline(false);
-                if (status !== 'Completed' && status !== 'Error') {
-                    setError(`A connection error occurred: ${err.message}. The sender may have left.`);
-                    setStatus('Error');
-                }
-              }
-            });
-            
-            if (!peer.destroyed) {
-                peer.signal(offer);
             }
-        } catch(err) {
-            console.error("Failed to initialize or signal peer:", err);
-            setError(err instanceof Error ? `The share link appears to be invalid or corrupt: ${err.message}` : "The share link appears to be invalid or corrupt.");
-            setStatus("Error");
-        }
+          }
+        });
+
+      } catch(err) {
+        console.error("Failed to initialize peer:", err);
+        setError(err instanceof Error ? `The share link appears to be invalid or corrupt: ${err.message}` : "The share link appears to be invalid or corrupt.");
+        setStatus("Error");
+      }
     }
 
-    const fetchOffer = async () => {
+    const fetchShareId = async () => {
       try {
+        // This is a dummy call just to get the shareId from the obfuscatedCode
+        // We don't use the p2pOffer from here in the new flow
         const response = await fetch('/api/share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -223,13 +228,13 @@ export default function DownloadPage() {
             throw new Error(errorData.message || 'Share session not found.');
         }
 
-        const { p2pOffer, shareId } = await response.json();
+        const { shareId } = await response.json();
         
-        if (!p2pOffer) {
+        if (!shareId) {
           throw new Error('Invalid or expired share link.');
         }
 
-        initializePeer(p2pOffer, shareId);
+        initializePeer(shareId);
 
       } catch (err: any) {
          setError(err.message || 'An unexpected error occurred while fetching the session.');
@@ -237,7 +242,7 @@ export default function DownloadPage() {
       }
     };
 
-    fetchOffer();
+    fetchShareId();
 
     pingCheckInterval = setInterval(() => {
       if (Date.now() - lastPing.current > 5000) {
