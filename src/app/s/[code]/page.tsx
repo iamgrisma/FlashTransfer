@@ -138,6 +138,12 @@ export default function DownloadPage() {
     peer.on('error', (err) => {
         console.error('Receiver Peer error', err);
         setSenderOnline(false);
+        setStatus('Error');
+        setError('Connection lost. Please ensure sender is still online and refresh.');
+    });
+
+    peer.on('close', () => {
+        setSenderOnline(false);
     });
   }, [downloadFile, requestNextFileFromQueue, files]);
   
@@ -201,11 +207,12 @@ export default function DownloadPage() {
     
     initializeConnection();
 
-    // DO NOT ADD CLEANUP LOGIC HERE.
-    // The peer connection should only be destroyed when the page is unloaded,
-    // which the browser handles. React's cleanup would destroy it on re-renders,
-    // which is the source of the "session closing" bug.
-
+    return () => {
+        peerRef.current?.destroy();
+        if (channelRef.current) {
+            channelRef.current.unsubscribe();
+        }
+    }
   }, [obfuscatedCode, initializeConnection]);
 
 
@@ -393,3 +400,5 @@ export default function DownloadPage() {
     </div>
   );
 }
+
+    
