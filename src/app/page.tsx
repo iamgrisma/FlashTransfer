@@ -27,8 +27,10 @@ export default function Home() {
   const handleReset = useCallback(() => {
     peerRef.current?.destroy();
     peerRef.current = null;
-    channelRef.current?.unsubscribe();
-    channelRef.current = null;
+    if (channelRef.current) {
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
+    }
     setFiles([]);
     setShareId(null);
     setShareCode('');
@@ -46,6 +48,9 @@ export default function Home() {
 
     // SENDER: When the offer signal is ready, save it to the database
     newPeer.on('signal', async (offer) => {
+        // This event can fire multiple times, but we only want to create the share session once.
+        if (shareId) return;
+
         const newShortCode = generateShareCode();
         const newObfuscatedCode = obfuscateCode(newShortCode);
 
@@ -79,8 +84,8 @@ export default function Home() {
         channelRef.current = channel;
 
         channel.on('broadcast', { event: 'answer' }, ({ payload }) => {
-            if (peerRef.current && !peerRef.current.destroyed) {
-                peerRef.current.signal(payload.answer);
+            if (peerRef.current && !peerRef.current.destroyed && payload.answer) {
+                 peerRef.current.signal(payload.answer);
             }
         }).subscribe();
     });
@@ -102,7 +107,7 @@ export default function Home() {
           const data = JSON.parse(chunk.toString());
           if (data.type === 'requestFile') {
             const fileToTransfer = files.find(f => f.name === data.payload.fileName);
-            if (fileToTransfer && peerRef.current) {
+            if (fileToTransfer && peerRef.current && !peerRef.current.destroyed) {
               sendFile(fileToTransfer, peerRef.current);
             }
           }
@@ -114,22 +119,27 @@ export default function Home() {
     newPeer.on('close', () => {
         console.log('Peer disconnected.');
         toast({ title: 'Recipient Disconnected', description: 'A file transfer session has ended.'});
-        handleReset();
+        // Do not reset the session here automatically. Let the user decide.
     });
 
     newPeer.on('error', (err) => {
         console.error('Peer error:', err);
-        toast({ variant: 'destructive', title: 'Connection Error', description: `An error occurred.` });
-        handleReset();
+        // Avoid resetting on every error, as some are non-fatal
+        if (!peerRef.current?.destroyed) {
+            toast({ variant: 'destructive', title: 'Connection Error', description: `An error occurred: ${err.message}` });
+        }
     });
 
-  }, [toast, files, handleReset]);
+  }, [toast, files, handleReset, shareId]);
 
   const sendFile = (file: File, peer: Peer.Instance) => {
       const chunkSize = 64 * 1024; // 64KB
       let offset = 0;
       
-      if (peer.destroyed) return;
+      if (peer.destroyed) {
+        console.error("Attempted to send file but peer is destroyed.");
+        return;
+      }
       
       try {
         peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name, fileSize: file.size } }));
@@ -156,6 +166,7 @@ export default function Home() {
               }
           } catch(err) {
               console.error("Error sending file chunk:", err);
+              handleReset();
           }
       };
       
