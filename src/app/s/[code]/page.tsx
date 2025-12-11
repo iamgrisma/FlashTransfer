@@ -169,6 +169,9 @@ export default function DownloadPage() {
         throw new Error(errorData.message || 'Share session not found or expired.');
       }
 
+      // Check if mounted after async fetch
+      if (!isMounted.current) return;
+
       const { p2pOffer, shareId } = await response.json();
 
       if (!p2pOffer || !shareId) {
@@ -185,6 +188,7 @@ export default function DownloadPage() {
 
       // RECEIVER: When the answer signal is ready, send it to the sender
       newPeer.on('signal', (answer) => {
+        if (!isMounted.current) return; // Guard
         if (answer.type !== 'answer') return;
 
         const channel = supabase.channel(`share-session-${shareId}`);
@@ -204,33 +208,41 @@ export default function DownloadPage() {
       newPeer.signal(JSON.parse(p2pOffer));
 
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred.');
-      setStatus('Error');
+      if (isMounted.current) {
+        setError(err.message || 'An unexpected error occurred.');
+        setStatus('Error');
+      }
     }
   }, [setupPeerEvents]);
 
+  // Track if the component is mounted to handle async operations safely
+  const isMounted = useRef(true);
 
-  const initializationStarted = useRef(false);
+  // Separate the initialization logic into a function that respects the mounted state
+  const init = useCallback(async () => {
+    if (!obfuscatedCode) return;
+
+    // Check if we already have an active peer or if initialization is locked?
+    // In strict mode, we might get called twice.
+    // We want to ensure we don't create multiple peers for the same mount.
+
+    // Note: initializeConnection is async.
+    await initializeConnection(obfuscatedCode);
+  }, [obfuscatedCode, initializeConnection]);
 
   useEffect(() => {
-    if (obfuscatedCode && !initializationStarted.current) {
-      initializationStarted.current = true;
-      initializeConnection(obfuscatedCode);
-    }
+    isMounted.current = true;
+    init();
 
     // Cleanup function
     return () => {
-      // Only destroy if we actually started initialization
-      if (initializationStarted.current) {
-        peerRef.current?.destroy();
-        if (channelRef.current) {
-          channelRef.current.unsubscribe();
-        }
-        // Optional: reset initializationStarted if you want to allow re-mounts to re-init
-        // initializationStarted.current = false; 
+      isMounted.current = false;
+      peerRef.current?.destroy();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
       }
     }
-  }, [obfuscatedCode, initializeConnection]);
+  }, [init]);
 
 
   const requestFiles = (fileNames: string[]) => {
