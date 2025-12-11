@@ -14,6 +14,7 @@ import { Download, File as FileIcon, Loader, Scan, ShieldAlert, Wifi, WifiOff } 
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { reverseObfuscateCode } from '@/lib/code';
 
 type TransferStatus = 'Connecting' | 'Waiting' | 'Receiving' | 'Completed' | 'Error' | 'Scanning';
 type CurrentTransfer = {
@@ -40,6 +41,7 @@ export default function DownloadPage() {
   const filesToDownloadRef = useRef<string[]>([]);
   const currentTransferRef = useRef<CurrentTransfer>(null);
   const savedFilesRef = useRef<Set<string>>(new Set());
+  const answerSentRef = useRef(false);
 
   const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
@@ -81,27 +83,30 @@ export default function DownloadPage() {
     if (!obfuscatedCode) return;
 
     const supabase = createClient();
-    let answerSent = false;
+    
     let peer: Peer.Instance | null = null;
 
-    const initializePeer = (offer: Peer.SignalData) => {
+    const initializePeer = (offer: any, shortCode: string) => {
         if (peerRef.current) {
           peerRef.current.destroy();
         }
+        answerSentRef.current = false;
         
         peer = new Peer({ initiator: false, trickle: false });
         peerRef.current = peer;
 
         peer.on('signal', async (signalData) => {
-            if (peer?.destroyed || answerSent || (signalData as any).renegotiate || (signalData as any).candidate) return;
+            if (!signalData || peer?.destroyed || answerSentRef.current || (signalData as any).renegotiate || (signalData as any).candidate) {
+                return;
+            }
             
             if(signalData.type === 'answer') {
-              answerSent = true;
+              answerSentRef.current = true;
 
               const { data: shareData, error: updateError } = await supabase
                 .from('fileshare')
                 .update({ p2p_answer: JSON.stringify(signalData) })
-                .eq('short_code', offer.short_code)
+                .eq('short_code', shortCode)
                 .select('id')
                 .single();
 
@@ -167,7 +172,7 @@ export default function DownloadPage() {
                         break;
                 }
             } catch (e) {
-                // This could be raw data if protocol is mixed, ignore for now
+                 console.error("Error parsing incoming data:", e);
             }
         });
 
@@ -181,18 +186,25 @@ export default function DownloadPage() {
 
         peer.on('error', (err) => {
           console.error('Peer error', err);
-          setSenderOnline(false);
-          if (status !== 'Completed' && status !== 'Error') {
-            setError(`A connection error occurred: ${err.message}. The sender may have left.`);
-            setStatus('Error');
+          if (peer && !peer.destroyed) {
+            setSenderOnline(false);
+            if (status !== 'Completed' && status !== 'Error') {
+                setError(`A connection error occurred: ${err.message}. The sender may have left.`);
+                setStatus('Error');
+            }
           }
         });
-
-        if (!peer.destroyed) {
-            peer.signal(offer.p2p_offer);
+        
+        try {
+            if (!peer.destroyed) {
+                peer.signal(offer);
+            }
+        } catch(err) {
+            console.error("Failed to signal with offer", err);
+            setError("The share link appears to be invalid or corrupt.");
+            setStatus("Error");
         }
     }
-
 
     const fetchOffer = async () => {
       try {
@@ -212,10 +224,9 @@ export default function DownloadPage() {
         if (!p2pOffer) {
           throw new Error('Invalid or expired share link.');
         }
-        
-        // This is a bit of a hack to pass the short_code to the signal handler
-        const offerWithCode = { ...JSON.parse(p2pOffer), short_code: obfuscatedCode };
-        initializePeer(offerWithCode);
+
+        const shortCode = reverseObfuscateCode(obfuscatedCode);
+        initializePeer(JSON.parse(p2pOffer), shortCode);
 
       } catch (err: any) {
          setError(err.message || 'An unexpected error occurred while fetching the session.');
@@ -232,10 +243,10 @@ export default function DownloadPage() {
     }, 3000);
 
     return () => {
-      if(peerRef.current) {
+      if(peerRef.current && !peerRef.current.destroyed) {
         peerRef.current.destroy();
-        peerRef.current = null;
       }
+      peerRef.current = null;
       clearInterval(pingCheck);
     };
   }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status]);
@@ -243,22 +254,19 @@ export default function DownloadPage() {
 
   const requestFiles = (fileNames: string[]) => {
     const filesToRequest = fileNames.filter(name => !savedFilesRef.current.has(name) && !filesToDownloadRef.current.includes(name));
-    if (filesToRequest.length === 0) {
-        // If all are already downloaded, just save them again
-        fileNames.forEach(name => {
-            if(savedFilesRef.current.has(name) && peerRef.current?.destroyed) {
-                // This part is tricky as we don't keep chunks after download
-                toast({title: 'Already Downloaded', description: `${name} has already been downloaded and saved. The connection is now closed.`})
-            } else if ((downloadProgress[name] || 0) === 100) {
-                toast({title: 'Ready to Save', description: `${name} is ready. Waiting for sender to re-send.`})
-            }
-        });
-        if (fileNames.length > 0 && filesToRequest.length === 0) return;
+    
+    if (fileNames.every(name => savedFilesRef.current.has(name))) {
+        toast({title: 'Already Downloaded', description: 'All selected files have already been downloaded.'});
+        return;
     }
 
     if (peerRef.current && !peerRef.current.destroyed) {
         const isQueueRunning = filesToDownloadRef.current.length > 0;
-        filesToRequest.forEach(name => filesToDownloadRef.current.push(name));
+        filesToRequest.forEach(name => {
+            if (!filesToDownloadRef.current.includes(name)) {
+                filesToDownloadRef.current.push(name)
+            }
+        });
         
         if (!isQueueRunning) {
             requestNextFileFromQueue();
@@ -402,7 +410,7 @@ export default function DownloadPage() {
                                   {file.scanStatus === 'scanning' && <Loader className="animate-spin text-primary"/>}
                                   {file.scanStatus === 'scanned' && <ShieldAlert className="text-green-500"/>}
 
-                                  <Button size="sm" onClick={() => requestFiles([file.name])} disabled={isReceiving && !isDownloaded}>
+                                  <Button size="sm" onClick={() => requestFiles([file.name])} disabled={isReceiving && !isSelected}>
                                       <Download className="mr-2"/> {isDownloaded ? 'Save Again' : 'Download'}
                                   </Button>
                               </div>
@@ -433,5 +441,3 @@ export default function DownloadPage() {
     </div>
   );
 }
-
-    
