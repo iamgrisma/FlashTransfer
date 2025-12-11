@@ -177,7 +177,7 @@ export default function Home() {
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
-      handleReset();
+      // handleReset(); // This was causing the error
     });
 
     newPeer.on('error', (err) => {
