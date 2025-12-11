@@ -122,7 +122,7 @@ export default function DownloadPage() {
                     if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
                         const completedFile = files.find(f => f.name === payload.fileName);
                         if (completedFile) {
-                            downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
+                            downloadFile(payload.fileName, currentTransferref.current.chunks, completedFile.type);
                             setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
                         }
                         currentTransferRef.current = null;
@@ -138,6 +138,7 @@ export default function DownloadPage() {
 
     peer.on('close', () => {
         setSenderOnline(false);
+        setStatus('Waiting'); // Allow reconnection attempts
     });
 
     peer.on('error', (err) => {
@@ -145,83 +146,75 @@ export default function DownloadPage() {
         setSenderOnline(false);
     });
   }, [downloadFile, requestNextFileFromQueue, files]);
+  
+  const initializeConnection = useCallback(async () => {
+    try {
+        const response = await fetch('/api/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ obfuscatedCode }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Share session not found or expired.');
+        }
+
+        const { p2pOffer, shareId } = await response.json();
+        
+        if (!p2pOffer || !shareId) {
+          throw new Error('Invalid or expired share link.');
+        }
+
+        const supabase = createClient();
+        // RECEIVER is NOT the initiator
+        const newPeer = new Peer({ initiator: false, trickle: false });
+        peerRef.current = newPeer;
+        answerSentRef.current = false;
+
+        // RECEIVER: When the answer signal is ready, send it to the sender
+        newPeer.on('signal', (answer) => {
+            if (answerSentRef.current || !answer) return;
+            answerSentRef.current = true;
+
+            const channel = supabase.channel(`share-session-${shareId}`);
+            channelRef.current = channel;
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'answer',
+                        payload: { answer },
+                    });
+                }
+            });
+        });
+
+        // RECEIVER: Signal with the offer from the sender
+        newPeer.signal(JSON.parse(p2pOffer));
+        
+        setupPeerEvents(newPeer);
+
+    } catch (err: any) {
+         setError(err.message || 'An unexpected error occurred.');
+         setStatus('Error');
+    }
+  }, [obfuscatedCode, setupPeerEvents]);
+
 
   useEffect(() => {
     if (!obfuscatedCode) return;
     
-    const supabase = createClient();
-    let isMounted = true;
-    
-    const cleanup = () => {
-        isMounted = false;
+    initializeConnection();
+
+    return () => {
         peerRef.current?.destroy();
         if (channelRef.current) {
             channelRef.current.unsubscribe();
             channelRef.current = null;
         }
     };
-
-    const initializeConnection = async () => {
-        try {
-            const response = await fetch('/api/share', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ obfuscatedCode }),
-            });
-            
-            if (!isMounted) return;
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Share session not found or expired.');
-            }
-
-            const { p2pOffer, shareId } = await response.json();
-            
-            if (!p2pOffer || !shareId) {
-              throw new Error('Invalid or expired share link.');
-            }
-
-            // RECEIVER is NOT the initiator
-            const newPeer = new Peer({ initiator: false, trickle: false });
-            peerRef.current = newPeer;
-            answerSentRef.current = false;
-
-            // RECEIVER: When the answer signal is ready, send it to the sender
-            newPeer.on('signal', (answer) => {
-                if (answerSentRef.current) return;
-                answerSentRef.current = true;
-
-                const channel = supabase.channel(`share-session-${shareId}`);
-                channelRef.current = channel;
-                channel.subscribe((status) => {
-                    if (status === 'SUBSCRIBED') {
-                        channel.send({
-                            type: 'broadcast',
-                            event: 'answer',
-                            payload: { answer },
-                        });
-                    }
-                });
-            });
-
-            // RECEIVER: Signal with the offer from the sender
-            newPeer.signal(JSON.parse(p2pOffer));
-            
-            setupPeerEvents(newPeer);
-
-        } catch (err: any) {
-             if (isMounted) {
-                setError(err.message || 'An unexpected error occurred.');
-                setStatus('Error');
-             }
-        }
-    };
-
-    initializeConnection();
-
-    return cleanup;
-  }, [obfuscatedCode, setupPeerEvents]);
+  }, [obfuscatedCode, initializeConnection]);
 
 
   const requestFiles = (fileNames: string[]) => {
@@ -408,3 +401,5 @@ export default function DownloadPage() {
     </div>
   );
 }
+
+    
