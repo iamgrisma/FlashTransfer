@@ -38,11 +38,9 @@ export default function DownloadPage() {
   const peerRef = useRef<Peer.Instance | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const { toast } = useToast();
-  const lastPing = useRef(Date.now());
   const filesToDownloadRef = useRef<string[]>([]);
   const currentTransferRef = useRef<CurrentTransfer>(null);
   const savedFilesRef = useRef<Set<string>>(new Set());
-  const receiverIdRef = useRef(`receiver-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
 
   const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
@@ -82,77 +80,78 @@ export default function DownloadPage() {
 
   useEffect(() => {
     if (!obfuscatedCode) return;
-    const receiverId = receiverIdRef.current;
     const supabase = createClient();
-    let pingCheckInterval: NodeJS.Timeout | null = null;
+    let isMounted = true;
     
     const cleanup = () => {
-        if (peerRef.current) {
-            peerRef.current.destroy();
-            peerRef.current = null;
-        }
-        if (channelRef.current) {
-            channelRef.current.unsubscribe();
-            channelRef.current = null;
-        }
-        if (pingCheckInterval) {
-            clearInterval(pingCheckInterval);
-        }
+        isMounted = false;
+        peerRef.current?.destroy();
+        peerRef.current = null;
+        channelRef.current?.unsubscribe();
+        channelRef.current = null;
     };
-    
-    const initializePeerConnection = (shareId: string) => {
-        if (peerRef.current || !shareId) return;
 
-        const channel = supabase.channel(`share-session-${shareId}`);
-        channelRef.current = channel;
+    const initializeConnection = async () => {
+        try {
+            const response = await fetch('/api/share', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ obfuscatedCode }),
+            });
 
-        // RECEIVER: Listen for an offer from the sender for us
-        channel.on('broadcast', { event: `offer-for-${receiverId}` }, ({ payload }) => {
-            if (peerRef.current) { // Already have a peer, might be a reconnect
-                return;
+            if (!response.ok || !isMounted) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Share session not found or expired.');
             }
 
-            // RECEIVER: Is NOT the initiator
+            const { p2pOffer, shareId } = await response.json();
+            
+            if (!p2pOffer || !shareId) {
+              throw new Error('Invalid or expired share link.');
+            }
+
+            // RECEIVER is NOT the initiator
             const newPeer = new Peer({ initiator: false, trickle: false });
             peerRef.current = newPeer;
 
-            // RECEIVER: Signal with the offer from the sender
-            newPeer.signal(payload.offer);
-
-            // RECEIVER: When we get our answer, send it back to the sender
+            // RECEIVER: When the answer signal is ready, send it to the sender
             newPeer.on('signal', (answer) => {
-                channel.send({
-                    type: 'broadcast',
-                    event: `answer-for-${receiverId}`,
-                    payload: { answer },
+                const channel = supabase.channel(`share-session-${shareId}`);
+                channelRef.current = channel;
+                channel.subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        channel.send({
+                            type: 'broadcast',
+                            event: 'answer',
+                            payload: { answer },
+                        });
+                    }
                 });
             });
 
+            // RECEIVER: Signal with the offer from the sender
+            newPeer.signal(p2pOffer);
+            
             setupPeerEvents(newPeer);
-        });
 
-        channel.subscribe(subscribeStatus => {
-            if (subscribeStatus === 'SUBSCRIBED') {
-                // RECEIVER: Announce our presence and request a connection
-                channel.send({
-                    type: 'broadcast',
-                    event: 'request-connection',
-                    payload: { receiverId },
-                });
-            }
-        });
+        } catch (err: any) {
+             if (isMounted) {
+                setError(err.message || 'An unexpected error occurred.');
+                setStatus('Error');
+             }
+        }
     };
 
     const setupPeerEvents = (peer: Peer.Instance) => {
         peer.on('connect', () => {
+            if (!isMounted) return;
             setSenderOnline(true);
-            lastPing.current = Date.now();
             setStatus('Waiting');
         });
 
         peer.on('data', (data) => {
+            if (!isMounted) return;
             setSenderOnline(true);
-            lastPing.current = Date.now();
 
             if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
                 if (currentTransferRef.current) {
@@ -198,11 +197,12 @@ export default function DownloadPage() {
                         break;
                 }
             } catch (e) {
-                  // This is likely a raw data chunk, not JSON. We handle it above.
+                  // Not JSON, likely a raw data chunk. Handled above.
             }
         });
 
         peer.on('close', () => {
+            if (!isMounted) return;
             setSenderOnline(false);
             if (status !== 'Completed' && status !== 'Error') {
                 setError('The sender has disconnected.');
@@ -211,54 +211,22 @@ export default function DownloadPage() {
         });
 
         peer.on('error', (err) => {
+            if (!isMounted) return;
             console.error('Peer error', err);
             setSenderOnline(false);
             if (peer && !peer.destroyed && status !== 'Completed' && status !== 'Error') {
-                setError(`A connection error occurred: ${err.message}. The sender may have left.`);
+                setError(`A connection error occurred: ${err.message}.`);
                 setStatus('Error');
             }
         });
     }
 
-    const fetchShareIdAndConnect = async () => {
-      try {
-        const response = await fetch('/api/share', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ obfuscatedCode }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Share session not found.');
-        }
-
-        const { shareId } = await response.json();
-        
-        if (!shareId) {
-          throw new Error('Invalid or expired share link.');
-        }
-
-        initializePeerConnection(shareId);
-
-      } catch (err: any) {
-         setError(err.message || 'An unexpected error occurred while fetching the session.');
-         setStatus('Error');
-      }
-    };
-
-    fetchShareIdAndConnect();
-
-    pingCheckInterval = setInterval(() => {
-      if (Date.now() - lastPing.current > 10000) { // 10 second timeout
-        if(senderOnline) setSenderOnline(false);
-      }
-    }, 3000);
+    initializeConnection();
 
     return () => {
       cleanup();
     };
-  }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status, senderOnline]);
+  }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status]);
 
 
   const requestFiles = (fileNames: string[]) => {
