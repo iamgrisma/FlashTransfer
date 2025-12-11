@@ -200,10 +200,8 @@ export default function Home() {
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
-      if (!newPeer.destroyed) {
-        toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
-        handleReset();
-      }
+      toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
+      // Do not call handleReset() here as it calls destroy() on an already closing peer.
     });
 
     newPeer.on('error', (err) => {
@@ -286,5 +284,4 @@ export default function Home() {
     </div>
   );
 }
-
     

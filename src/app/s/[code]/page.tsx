@@ -107,7 +107,6 @@ export default function DownloadPage() {
             peer.on('signal', async (signalData) => {
                 if (peer?.destroyed || answerSentRef.current) return;
                 
-                // simple-peer can emit signals that are not answers, we only care for the answer
                 if(signalData && signalData.type === 'answer') {
                   answerSentRef.current = true;
                   const { error: updateError } = await supabase
@@ -184,7 +183,7 @@ export default function DownloadPage() {
     
             peer.on('close', () => {
               setSenderOnline(false);
-              if (status !== 'Completed') {
+              if (status !== 'Completed' && status !== 'Error') {
                 setError('The sender has disconnected.');
                 setStatus('Error');
               }
