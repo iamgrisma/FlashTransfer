@@ -59,14 +59,12 @@ export default function Home() {
       const supabase = createClient();
       const newShortCode = generateShareCode();
       const newObfuscatedCode = obfuscateCode(newShortCode);
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-
+      
       const { data, error } = await supabase
         .from('fileshare')
         .insert([{ 
             p2p_offer: JSON.stringify(offer), 
             short_code: newShortCode,
-            expires_at: expiresAt 
         }])
         .select('id')
         .single();
@@ -201,7 +199,6 @@ export default function Home() {
     newPeer.on('close', () => {
       console.log('Peer disconnected');
       toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
-      // Do not call handleReset() here as it calls destroy() on an already closing peer.
     });
 
     newPeer.on('error', (err) => {
