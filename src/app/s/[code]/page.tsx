@@ -140,14 +140,15 @@ export default function DownloadPage() {
 
     peer.on('error', (err) => {
         console.error('Receiver Peer error', err);
-        setError('Connection to sender lost.');
-        setStatus('Error');
         setSenderOnline(false);
+        if (status !== 'Completed') {
+            setError('Connection to sender lost.');
+            setStatus('Error');
+        }
     });
 
     peer.on('close', () => {
         setSenderOnline(false);
-        // Only show an error if we weren't already in a completed or error state
         if (status !== 'Completed' && status !== 'Error') {
           setError('Sender has disconnected.');
           setStatus('Error');
@@ -179,9 +180,11 @@ export default function DownloadPage() {
         const newPeer = new Peer({ initiator: false, trickle: false });
         peerRef.current = newPeer;
 
+        // CRITICAL: Set up event listeners BEFORE signaling.
+        setupPeerEvents(newPeer);
+        
         // RECEIVER: When the answer signal is ready, send it to the sender
         newPeer.on('signal', (answer) => {
-            // This event can fire multiple times, but we only care about the 'answer' type
             if (answer.type !== 'answer') return;
 
             const channel = supabase.channel(`share-session-${shareId}`);
@@ -196,8 +199,6 @@ export default function DownloadPage() {
                 }
             });
         });
-        
-        setupPeerEvents(newPeer);
         
         // RECEIVER: Signal with the offer from the sender
         newPeer.signal(JSON.parse(p2pOffer));
