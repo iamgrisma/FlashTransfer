@@ -41,7 +41,6 @@ export default function Home() {
 
   // SENDER: Main logic to create a share session
   const createShareSession = useCallback(async (initialFiles: File[]) => {
-    handleReset();
     setFiles(initialFiles);
     const supabase = createClient();
     
@@ -261,3 +260,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
