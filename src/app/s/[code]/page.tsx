@@ -16,6 +16,12 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 
 type TransferStatus = 'Connecting' | 'Waiting' | 'Receiving' | 'Completed' | 'Error' | 'Scanning';
+type CurrentTransfer = {
+    fileName: string;
+    fileSize: number;
+    receivedSize: number;
+    chunks: any[];
+} | null;
 
 export default function DownloadPage() {
   const params = useParams();
@@ -29,54 +35,43 @@ export default function DownloadPage() {
   const [downloadProgress, setDownloadProgress] = useState<{ [key: string]: number }>({});
   
   const peerRef = useRef<Peer.Instance | null>(null);
-  const fileChunksRef = useRef<{ [key: string]: any[] }>({});
-  const receivedSizeRef = useRef<{ [key: string]: number }>({});
   const { toast } = useToast();
   const lastPing = useRef(Date.now());
-  const shareIdRef = useRef<string | null>(null);
-  const answerSentRef = useRef(false);
   const filesToDownloadRef = useRef<string[]>([]);
+  const currentTransferRef = useRef<CurrentTransfer>(null);
+  const savedFilesRef = useRef<Set<string>>(new Set());
 
-
-  const downloadSingleFile = useCallback((fileName: string) => {
-    const file = files.find(f => f.name === fileName);
-    if (!file || !fileChunksRef.current[fileName] || fileChunksRef.current[fileName].length === 0) {
-        toast({ title: 'Download Failed', description: `File data for ${fileName} not found. Please try requesting it again.`, variant: 'destructive'});
-        setDownloadProgress(prev => ({...prev, [fileName]: 0}));
-        return;
-    };
-
+  const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
-        const fileBlob = new Blob(fileChunksRef.current[fileName], { type: file.type });
+        const fileBlob = new Blob(chunks, { type: fileType });
         const url = URL.createObjectURL(fileBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = file.name;
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        savedFilesRef.current.add(fileName);
     } catch (e) {
         console.error("Error creating blob for download:", e);
         toast({ title: 'Download Failed', description: `Could not save file ${fileName}.`, variant: 'destructive'});
     }
-  }, [files, toast]);
+  }, [toast]);
   
   const requestNextFileFromQueue = useCallback(() => {
-    if (filesToDownloadRef.current.length > 0) {
-        const nextFileName = filesToDownloadRef.current[0]; // Peek at the next file
-        if (nextFileName) {
-            if (peerRef.current && !peerRef.current.destroyed) {
-                peerRef.current.send(JSON.stringify({ type: 'requestFile', payload: { fileName: nextFileName } }));
-            }
-        }
-    } else {
-        // If queue is empty, check if all selected files are downloaded
-        const allSelectedDownloaded = selectedFiles.every(sf => (downloadProgress[sf] || 0) >= 100);
-        if (allSelectedDownloaded && selectedFiles.length > 0) {
-            setStatus('Completed');
-        } else if (status !== 'Error') {
-            setStatus('Waiting');
+    if (peerRef.current && !peerRef.current.destroyed) {
+        const nextFile = filesToDownloadRef.current[0];
+        if (nextFile) {
+             setStatus('Receiving');
+             peerRef.current.send(JSON.stringify({ type: 'requestFile', payload: { fileName: nextFile } }));
+        } else {
+             const allSelectedDownloaded = selectedFiles.every(sf => (downloadProgress[sf] || 0) >= 100);
+             if (allSelectedDownloaded && selectedFiles.length > 0) {
+                 setStatus('Completed');
+             } else if (status !== 'Error') {
+                 setStatus('Waiting');
+             }
         }
     }
   }, [selectedFiles, downloadProgress, status]);
@@ -84,14 +79,120 @@ export default function DownloadPage() {
 
   useEffect(() => {
     if (!obfuscatedCode) return;
-    const supabase = createClient();
-    answerSentRef.current = false;
 
-    const peer = new Peer({
-      initiator: false,
-      trickle: false,
-    });
-    peerRef.current = peer;
+    const supabase = createClient();
+    let answerSent = false;
+    let peer: Peer.Instance | null = null;
+
+    const initializePeer = (offer: Peer.SignalData) => {
+        if (peerRef.current) {
+          peerRef.current.destroy();
+        }
+        
+        peer = new Peer({ initiator: false, trickle: false });
+        peerRef.current = peer;
+
+        peer.on('signal', async (signalData) => {
+            if (peer?.destroyed || answerSent || (signalData as any).renegotiate || (signalData as any).candidate) return;
+            
+            if(signalData.type === 'answer') {
+              answerSent = true;
+
+              const { data: shareData, error: updateError } = await supabase
+                .from('fileshare')
+                .update({ p2p_answer: JSON.stringify(signalData) })
+                .eq('short_code', offer.short_code)
+                .select('id')
+                .single();
+
+              if (updateError || !shareData) {
+                 setError('Failed to send response to sender. Please try reloading.');
+                 setStatus('Error');
+              }
+            }
+        });
+        
+        peer.on('connect', () => {
+          setSenderOnline(true);
+          lastPing.current = Date.now();
+          setStatus('Waiting');
+        });
+
+        peer.on('data', (data) => {
+            setSenderOnline(true);
+            lastPing.current = Date.now();
+
+            if (data instanceof Uint8Array) {
+                if (currentTransferRef.current) {
+                    const { fileName, fileSize } = currentTransferRef.current;
+                    currentTransferRef.current.chunks.push(data);
+                    currentTransferRef.current.receivedSize += data.byteLength;
+                    const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
+                    setDownloadProgress(prev => ({...prev, [fileName]: progress}));
+                }
+                return;
+            }
+
+            try {
+                const parsedData = JSON.parse(data.toString());
+                const { type, payload } = parsedData;
+
+                switch (type) {
+                    case 'ping':
+                        break;
+                    case 'fileDetails':
+                        const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
+                        setFiles(newFiles);
+                        break;
+                    case 'transferStart':
+                        currentTransferRef.current = {
+                            fileName: payload.fileName,
+                            fileSize: payload.fileSize,
+                            receivedSize: 0,
+                            chunks: []
+                        };
+                        setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
+                        break;
+                    case 'transferComplete':
+                        if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
+                            const completedFile = files.find(f => f.name === payload.fileName);
+                            if (completedFile) {
+                                downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
+                                setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
+                            }
+                            currentTransferRef.current = null;
+                            filesToDownloadRef.current.shift();
+                            requestNextFileFromQueue();
+                        }
+                        break;
+                }
+            } catch (e) {
+                // This could be raw data if protocol is mixed, ignore for now
+            }
+        });
+
+        peer.on('close', () => {
+          setSenderOnline(false);
+          if (status !== 'Completed') {
+            setStatus('Error');
+            setError('The sender has disconnected.');
+          }
+        });
+
+        peer.on('error', (err) => {
+          console.error('Peer error', err);
+          setSenderOnline(false);
+          if (status !== 'Completed' && status !== 'Error') {
+            setError(`A connection error occurred: ${err.message}. The sender may have left.`);
+            setStatus('Error');
+          }
+        });
+
+        if (!peer.destroyed) {
+            peer.signal(offer.p2p_offer);
+        }
+    }
+
 
     const fetchOffer = async () => {
       try {
@@ -112,10 +213,9 @@ export default function DownloadPage() {
           throw new Error('Invalid or expired share link.');
         }
         
-        shareIdRef.current = shareId;
-        if (!peerRef.current?.destroyed) {
-            peer.signal(JSON.parse(p2pOffer));
-        }
+        // This is a bit of a hack to pass the short_code to the signal handler
+        const offerWithCode = { ...JSON.parse(p2pOffer), short_code: obfuscatedCode };
+        initializePeer(offerWithCode);
 
       } catch (err: any) {
          setError(err.message || 'An unexpected error occurred while fetching the session.');
@@ -128,107 +228,8 @@ export default function DownloadPage() {
     const pingCheck = setInterval(() => {
       if (Date.now() - lastPing.current > 5000) {
         setSenderOnline(false);
-        if (status !== 'Completed' && status !== 'Error') {
-            setStatus('Waiting');
-        }
       }
     }, 3000);
-
-    peer.on('signal', async (signalData) => {
-      if (peer.destroyed || answerSentRef.current || (signalData as any).renegotiate || (signalData as any).candidate) return;
-      
-      if(signalData.type === 'answer') {
-        answerSentRef.current = true;
-        await supabase
-          .from('fileshare')
-          .update({ p2p_answer: JSON.stringify(signalData) })
-          .eq('id', shareIdRef.current!);
-      }
-    });
-
-    peer.on('connect', () => {
-      setSenderOnline(true);
-      lastPing.current = Date.now();
-      setStatus('Waiting');
-    });
-
-    peer.on('data', (data) => {
-        setSenderOnline(true);
-        lastPing.current = Date.now();
-        let parsedData;
-
-        try {
-            parsedData = JSON.parse(data.toString());
-        } catch (e) {
-            return;
-        }
-
-        const { type, payload } = parsedData;
-        
-        switch (type) {
-            case 'ping':
-                break;
-            case 'fileDetails':
-                const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
-                setFiles(newFiles);
-                const newFileChunks: { [key: string]: any[] } = {};
-                const newReceivedSizes: { [key: string]: number } = {};
-                newFiles.forEach(file => {
-                    newFileChunks[file.name] = [];
-                    newReceivedSizes[file.name] = 0;
-                });
-                fileChunksRef.current = newFileChunks;
-                receivedSizeRef.current = newReceivedSizes;
-                break;
-            case 'transferStart':
-                setStatus('Receiving');
-                setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
-                break;
-            case 'fileChunk':
-                if (fileChunksRef.current[payload.fileName]) {
-                    const chunk = new Uint8Array(payload.chunk);
-                    fileChunksRef.current[payload.fileName].push(chunk);
-                    receivedSizeRef.current[payload.fileName] += chunk.byteLength;
-                    const fileInfo = files.find(f => f.name === payload.fileName);
-                    if (fileInfo && fileInfo.size > 0) {
-                        const progress = Math.min((receivedSizeRef.current[payload.fileName] / fileInfo.size) * 100, 100);
-                        setDownloadProgress(prev => ({...prev, [payload.fileName]: progress}));
-                    }
-                }
-                break;
-            case 'transferComplete':
-                const completedFileName = payload.fileName;
-                const completedFile = files.find(f => f.name === completedFileName);
-                if (completedFile) {
-                    setDownloadProgress(prev => ({ ...prev, [completedFileName]: 100 }));
-                    
-                    // Only download if it was in the current download queue
-                    if (filesToDownloadRef.current[0] === completedFileName) {
-                      downloadSingleFile(completedFileName);
-                      filesToDownloadRef.current.shift(); // Remove from queue
-                      requestNextFileFromQueue(); // Request next file
-                    }
-                }
-                break;
-        }
-    });
-
-    peer.on('close', () => {
-      setSenderOnline(false);
-      if (status !== 'Completed') {
-        setStatus('Error');
-        setError('The sender has disconnected.');
-      }
-    });
-
-    peer.on('error', (err) => {
-      console.error('Peer error', err);
-      setSenderOnline(false);
-      if (status !== 'Completed' && status !== 'Error') {
-        setError('A connection error occurred. The sender may have left.');
-        setStatus('Error');
-      }
-    });
 
     return () => {
       if(peerRef.current) {
@@ -237,20 +238,28 @@ export default function DownloadPage() {
       }
       clearInterval(pingCheck);
     };
-  }, [obfuscatedCode, downloadSingleFile, requestNextFileFromQueue, status, files]);
+  }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status]);
 
 
-  const requestFile = (fileName: string) => {
+  const requestFiles = (fileNames: string[]) => {
+    const filesToRequest = fileNames.filter(name => !savedFilesRef.current.has(name) && !filesToDownloadRef.current.includes(name));
+    if (filesToRequest.length === 0) {
+        // If all are already downloaded, just save them again
+        fileNames.forEach(name => {
+            if(savedFilesRef.current.has(name) && peerRef.current?.destroyed) {
+                // This part is tricky as we don't keep chunks after download
+                toast({title: 'Already Downloaded', description: `${name} has already been downloaded and saved. The connection is now closed.`})
+            } else if ((downloadProgress[name] || 0) === 100) {
+                toast({title: 'Ready to Save', description: `${name} is ready. Waiting for sender to re-send.`})
+            }
+        });
+        if (fileNames.length > 0 && filesToRequest.length === 0) return;
+    }
+
     if (peerRef.current && !peerRef.current.destroyed) {
-        if((downloadProgress[fileName] || 0) === 100){
-            downloadSingleFile(fileName);
-            return;
-        }
-        // Add to queue and start if queue was empty
         const isQueueRunning = filesToDownloadRef.current.length > 0;
-        if (!filesToDownloadRef.current.includes(fileName)) {
-            filesToDownloadRef.current.push(fileName);
-        }
+        filesToRequest.forEach(name => filesToDownloadRef.current.push(name));
+        
         if (!isQueueRunning) {
             requestNextFileFromQueue();
         }
@@ -261,35 +270,13 @@ export default function DownloadPage() {
 
 
   const handleDownloadSelected = () => {
-    const filesToDownload = files.filter(f => selectedFiles.includes(f.name) && (downloadProgress[f.name] || 0) < 100);
-    const isQueueRunning = filesToDownloadRef.current.length > 0;
-    
-    // Add new files to the queue without duplicating
-    filesToDownload.forEach(f => {
-      if (!filesToDownloadRef.current.includes(f.name)) {
-        filesToDownloadRef.current.push(f.name);
-      }
-    });
-
-    if(!isQueueRunning && filesToDownloadRef.current.length > 0) {
-      requestNextFileFromQueue();
-    }
+    requestFiles(selectedFiles);
   }
 
   const handleDownloadAll = () => {
-    const allFiles = files.map(f => f.name);
-    setSelectedFiles(allFiles);
-    const isQueueRunning = filesToDownloadRef.current.length > 0;
-    
-    allFiles.forEach(name => {
-        if(!filesToDownloadRef.current.includes(name) && (downloadProgress[name] || 0) < 100) {
-            filesToDownloadRef.current.push(name);
-        }
-    });
-
-    if(!isQueueRunning && filesToDownloadRef.current.length > 0) {
-      requestNextFileFromQueue();
-    }
+    const allFileNames = files.map(f => f.name);
+    setSelectedFiles(allFileNames);
+    requestFiles(allFileNames);
   }
 
   const handleSelectFile = (fileName: string, isSelected: boolean) => {
@@ -310,7 +297,6 @@ export default function DownloadPage() {
 
   const handleScanFile = (fileName: string) => {
     setFiles(prev => prev.map(f => f.name === fileName ? {...f, scanStatus: 'scanning'} : f));
-    // Simulate a scan
     setTimeout(() => {
         setFiles(prev => prev.map(f => f.name === fileName ? {...f, scanStatus: 'scanned'} : f));
         toast({title: 'Scan Complete', description: `${fileName} appears to be safe.`});
@@ -416,8 +402,8 @@ export default function DownloadPage() {
                                   {file.scanStatus === 'scanning' && <Loader className="animate-spin text-primary"/>}
                                   {file.scanStatus === 'scanned' && <ShieldAlert className="text-green-500"/>}
 
-                                  <Button size="sm" onClick={() => requestFile(file.name)} disabled={isReceiving && !isDownloaded}>
-                                      <Download className="mr-2"/> {isDownloaded ? 'Save' : 'Download'}
+                                  <Button size="sm" onClick={() => requestFiles([file.name])} disabled={isReceiving && !isDownloaded}>
+                                      <Download className="mr-2"/> {isDownloaded ? 'Save Again' : 'Download'}
                                   </Button>
                               </div>
                           </div>

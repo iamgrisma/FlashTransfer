@@ -22,7 +22,6 @@ export default function Home() {
   const [shareCode, setShareCode] = useState('');
   
   const peerRef = useRef<Peer.Instance | null>(null);
-  const offerSentRef = useRef(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -30,7 +29,6 @@ export default function Home() {
     const filesArray = Array.from(selectedFiles);
     setFiles(filesArray);
     setIsConnecting(true);
-    offerSentRef.current = false; // Reset flag for new session
 
     if (peerRef.current) {
       peerRef.current.destroy();
@@ -38,12 +36,13 @@ export default function Home() {
     
     const newPeer = new Peer({ initiator: true, trickle: false });
     peerRef.current = newPeer;
+    let offerSent = false;
     
     newPeer.on('signal', async (offer) => {
-      if (newPeer.destroyed || offer.type !== 'offer' || offerSentRef.current) {
+      if (newPeer.destroyed || offer.type !== 'offer' || offerSent) {
           return;
       }
-      offerSentRef.current = true;
+      offerSent = true;
       
       const supabase = createClient();
       const newShortCode = generateShareCode();
@@ -92,6 +91,10 @@ export default function Home() {
                 newPeer.signal(JSON.parse(p2p_answer));
               } catch (err) {
                  console.error("Failed to apply answer signal", err);
+                 if (!newPeer.destroyed) {
+                    toast({ variant: 'destructive', title: 'Connection Failed', description: 'Could not establish connection with receiver.'});
+                    handleReset();
+                 }
               }
               channel.unsubscribe();
             }
@@ -105,7 +108,7 @@ export default function Home() {
         let offset = 0;
         
         if (peer.destroyed) return;
-        peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name } }));
+        peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name, fileSize: file.size } }));
 
         const readSlice = () => {
             if (!file || peer.destroyed) return;
@@ -116,8 +119,7 @@ export default function Home() {
                 if (e.target?.result && !peer.destroyed) {
                     try {
                         const chunk = e.target.result as ArrayBuffer;
-                        // Important: Send chunk data as an array of numbers to ensure JSON compatibility
-                        peer.send(JSON.stringify({ type: 'fileChunk', payload: { fileName: file.name, chunk: Array.from(new Uint8Array(chunk)) } }));
+                        peer.send(new Uint8Array(chunk));
                         offset += chunk.byteLength;
                         
                         const progress = Math.min((offset / file.size) * 100, 100);
@@ -177,19 +179,21 @@ export default function Home() {
             }
           }
         } catch (e) {
-          // Ignore non-json data which could be raw file chunks if we change the protocol
+          // This will be raw chunk data, so we ignore parse errors
         }
       });
     });
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
+      toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
+      handleReset();
     });
 
     newPeer.on('error', (err) => {
       console.error('Peer error', err);
       if (!newPeer.destroyed) {
-        toast({ variant: 'destructive', title: 'Connection Error', description: 'An unexpected connection error occurred.'});
+        toast({ variant: 'destructive', title: 'Connection Error', description: `An unexpected connection error occurred: ${err.message}`});
         handleReset();
       }
     });
@@ -249,8 +253,7 @@ export default function Home() {
                    <div className="flex flex-col items-center">
                       <Share2 className="h-10 w-10 text-primary mb-3"/>
                       <h3 className="font-semibold text-xl mb-2">Effortless Sharing</h3>
-                      <p className="text-muted-foreground">Just drag, drop, and share a link. FileZen makes secure file sharing as simple as it gets.</p>
-                  </div>
+                      <p className="text-muted-foreground">Just drag, drop, and share a link. FileZen makes secure file sharing as simple as it gets.</p>                  </div>
               </div>
               
               <h3>What is Peer-to-Peer (P2P) File Sharing?</h3>
