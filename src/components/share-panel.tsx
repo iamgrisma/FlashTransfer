@@ -23,14 +23,13 @@ import { Separator } from './ui/separator';
 interface SharePanelProps {
   files: File[];
   transferProgress: { [key: string]: number };
-  isConnecting: boolean; 
   onReset: () => void;
   shareLink: string;
   shortCode: string;
   onFileAdd: (files: FileList) => void;
 }
 
-export default function SharePanel({ files, transferProgress, isConnecting, onReset, shareLink, shortCode, onFileAdd }: SharePanelProps) {
+export default function SharePanel({ files, transferProgress, onReset, shareLink, shortCode, onFileAdd }: SharePanelProps) {
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -56,8 +55,11 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
-  const totalProgress = files.reduce((acc, file) => acc + (transferProgress[file.name] || 0), 0) / files.length;
-  const isTransferring = Object.values(transferProgress).some(p => p > 0);
+  const totalProgress = files.length > 0 
+    ? files.reduce((acc, file) => acc + (transferProgress[file.name] || 0), 0) / files.length
+    : 0;
+  const isTransferring = Object.values(transferProgress).some(p => p > 0 && p < 100);
+  const isConnecting = !shareLink;
 
   return (
     <Card className="w-full max-w-lg shadow-lg animate-in fade-in-0 zoom-in-95">
@@ -96,11 +98,11 @@ export default function SharePanel({ files, transferProgress, isConnecting, onRe
             ))}
         </div>
         
-        {isConnecting && !shareLink && (
+        {isConnecting && (
            <div className="flex items-center justify-center p-4"><Loader className="animate-spin text-primary h-8 w-8"/></div>
         )}
 
-        {isTransferring && totalProgress < 100 && (
+        {totalProgress > 0 && totalProgress < 100 && (
           <div className="space-y-2">
               <div className="flex justify-between items-center">
                   <Label>Overall Progress</Label>

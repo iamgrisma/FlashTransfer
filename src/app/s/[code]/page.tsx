@@ -42,6 +42,7 @@ export default function DownloadPage() {
   const filesToDownloadRef = useRef<string[]>([]);
   const currentTransferRef = useRef<CurrentTransfer>(null);
   const savedFilesRef = useRef<Set<string>>(new Set());
+  const receiverIdRef = useRef(`receiver-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
 
   const downloadFile = useCallback((fileName: string, chunks: any[], fileType: string) => {
     try {
@@ -55,6 +56,7 @@ export default function DownloadPage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         savedFilesRef.current.add(fileName);
+        toast({ title: 'Download Complete', description: `${fileName} has been saved.` });
     } catch (e) {
         console.error("Error creating blob for download:", e);
         toast({ title: 'Download Failed', description: `Could not save file ${fileName}.`, variant: 'destructive'});
@@ -78,145 +80,148 @@ export default function DownloadPage() {
     }
   }, [selectedFiles, downloadProgress, status]);
 
-
   useEffect(() => {
     if (!obfuscatedCode) return;
-
+    const receiverId = receiverIdRef.current;
     const supabase = createClient();
-    const receiverId = `receiver-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     let pingCheckInterval: NodeJS.Timeout | null = null;
-
+    
     const cleanup = () => {
-      if (peerRef.current) {
-        peerRef.current.destroy();
-        peerRef.current = null;
-      }
-      if (channelRef.current) {
-        channelRef.current.unsubscribe();
-        channelRef.current = null;
-      }
-      if (pingCheckInterval) {
-        clearInterval(pingCheckInterval);
-      }
+        if (peerRef.current) {
+            peerRef.current.destroy();
+            peerRef.current = null;
+        }
+        if (channelRef.current) {
+            channelRef.current.unsubscribe();
+            channelRef.current = null;
+        }
+        if (pingCheckInterval) {
+            clearInterval(pingCheckInterval);
+        }
     };
     
-    const initializePeer = (shareId: string) => {
-      if (peerRef.current) peerRef.current.destroy();
+    const initializePeerConnection = (shareId: string) => {
+        if (peerRef.current || !shareId) return;
 
-      try {
         const channel = supabase.channel(`share-session-${shareId}`);
         channelRef.current = channel;
 
-        const newPeer = new Peer({ initiator: true, trickle: false });
-        peerRef.current = newPeer;
-        
-        channel.on('broadcast', { event: 'answer' }, (message) => {
-          if (message.payload.receiverId === receiverId) {
-            newPeer.signal(message.payload.answer);
-          }
-        });
+        // RECEIVER: Listen for an offer from the sender for us
+        channel.on('broadcast', { event: `offer-for-${receiverId}` }, ({ payload }) => {
+            if (peerRef.current) { // Already have a peer, might be a reconnect
+                return;
+            }
 
-        channel.subscribe(status => {
-          if (status === 'SUBSCRIBED') {
-            newPeer.on('signal', offer => {
-              channel.send({
-                type: 'broadcast',
-                event: 'request-offer',
-                payload: { receiverId, offer },
-              });
+            // RECEIVER: Is NOT the initiator
+            const newPeer = new Peer({ initiator: false, trickle: false });
+            peerRef.current = newPeer;
+
+            // RECEIVER: Signal with the offer from the sender
+            newPeer.signal(payload.offer);
+
+            // RECEIVER: When we get our answer, send it back to the sender
+            newPeer.on('signal', (answer) => {
+                channel.send({
+                    type: 'broadcast',
+                    event: `answer-for-${receiverId}`,
+                    payload: { answer },
+                });
             });
-          }
-        });
-        
-        newPeer.on('connect', () => {
-          setSenderOnline(true);
-          lastPing.current = Date.now();
-          setStatus('Waiting');
+
+            setupPeerEvents(newPeer);
         });
 
-        newPeer.on('data', (data) => {
-          setSenderOnline(true);
-          lastPing.current = Date.now();
+        channel.subscribe(subscribeStatus => {
+            if (subscribeStatus === 'SUBSCRIBED') {
+                // RECEIVER: Announce our presence and request a connection
+                channel.send({
+                    type: 'broadcast',
+                    event: 'request-connection',
+                    payload: { receiverId },
+                });
+            }
+        });
+    };
 
-          if (data instanceof Uint8Array) {
-              if (currentTransferRef.current) {
-                  const { fileName, fileSize } = currentTransferRef.current;
-                  currentTransferRef.current.chunks.push(data);
-                  currentTransferRef.current.receivedSize += data.byteLength;
-                  const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
-                  setDownloadProgress(prev => ({...prev, [fileName]: progress}));
-              }
-              return;
-          }
-
-          try {
-              const parsedData = JSON.parse(data.toString());
-              const { type, payload } = parsedData;
-
-              switch (type) {
-                  case 'ping':
-                      break;
-                  case 'fileDetails':
-                      const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
-                      setFiles(newFiles);
-                      break;
-                  case 'transferStart':
-                      currentTransferRef.current = {
-                          fileName: payload.fileName,
-                          fileSize: payload.fileSize,
-                          receivedSize: 0,
-                          chunks: []
-                      };
-                      setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
-                      break;
-                  case 'transferComplete':
-                      if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
-                          const completedFile = files.find(f => f.name === payload.fileName);
-                          if (completedFile) {
-                              downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
-                              setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
-                          }
-                          currentTransferRef.current = null;
-                          filesToDownloadRef.current.shift();
-                          requestNextFileFromQueue();
-                      }
-                      break;
-              }
-          } catch (e) {
-                console.error("Error parsing incoming data:", e);
-          }
+    const setupPeerEvents = (peer: Peer.Instance) => {
+        peer.on('connect', () => {
+            setSenderOnline(true);
+            lastPing.current = Date.now();
+            setStatus('Waiting');
         });
 
-        newPeer.on('close', () => {
-          setSenderOnline(false);
-          if (status !== 'Completed' && status !== 'Error') {
-            setError('The sender has disconnected.');
-            setStatus('Error');
-          }
+        peer.on('data', (data) => {
+            setSenderOnline(true);
+            lastPing.current = Date.now();
+
+            if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+                if (currentTransferRef.current) {
+                    const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
+                    currentTransferRef.current.chunks.push(chunk);
+                    currentTransferRef.current.receivedSize += chunk.byteLength;
+                    const { fileName, fileSize } = currentTransferRef.current;
+                    const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
+                    setDownloadProgress(prev => ({...prev, [fileName]: progress}));
+                }
+                return;
+            }
+            
+            try {
+                const parsedData = JSON.parse(data.toString());
+                const { type, payload } = parsedData;
+
+                switch (type) {
+                    case 'fileDetails':
+                        const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({...f, scanStatus: 'unscanned'}));
+                        setFiles(newFiles);
+                        break;
+                    case 'transferStart':
+                        currentTransferRef.current = {
+                            fileName: payload.fileName,
+                            fileSize: payload.fileSize,
+                            receivedSize: 0,
+                            chunks: []
+                        };
+                        setDownloadProgress(prev => ({...prev, [payload.fileName]: 0}));
+                        break;
+                    case 'transferComplete':
+                        if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
+                            const completedFile = files.find(f => f.name === payload.fileName);
+                            if (completedFile) {
+                                downloadFile(payload.fileName, currentTransferRef.current.chunks, completedFile.type);
+                                setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
+                            }
+                            currentTransferRef.current = null;
+                            filesToDownloadRef.current.shift();
+                            requestNextFileFromQueue();
+                        }
+                        break;
+                }
+            } catch (e) {
+                  // This is likely a raw data chunk, not JSON. We handle it above.
+            }
         });
 
-        newPeer.on('error', (err) => {
-          console.error('Peer error', err);
-          if (newPeer && !newPeer.destroyed) {
+        peer.on('close', () => {
             setSenderOnline(false);
             if (status !== 'Completed' && status !== 'Error') {
+                setError('The sender has disconnected.');
+                setStatus('Error');
+            }
+        });
+
+        peer.on('error', (err) => {
+            console.error('Peer error', err);
+            setSenderOnline(false);
+            if (peer && !peer.destroyed && status !== 'Completed' && status !== 'Error') {
                 setError(`A connection error occurred: ${err.message}. The sender may have left.`);
                 setStatus('Error');
             }
-          }
         });
-
-      } catch(err) {
-        console.error("Failed to initialize peer:", err);
-        setError(err instanceof Error ? `The share link appears to be invalid or corrupt: ${err.message}` : "The share link appears to be invalid or corrupt.");
-        setStatus("Error");
-      }
     }
 
-    const fetchShareId = async () => {
+    const fetchShareIdAndConnect = async () => {
       try {
-        // This is a dummy call just to get the shareId from the obfuscatedCode
-        // We don't use the p2pOffer from here in the new flow
         const response = await fetch('/api/share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -234,7 +239,7 @@ export default function DownloadPage() {
           throw new Error('Invalid or expired share link.');
         }
 
-        initializePeer(shareId);
+        initializePeerConnection(shareId);
 
       } catch (err: any) {
          setError(err.message || 'An unexpected error occurred while fetching the session.');
@@ -242,18 +247,18 @@ export default function DownloadPage() {
       }
     };
 
-    fetchShareId();
+    fetchShareIdAndConnect();
 
     pingCheckInterval = setInterval(() => {
-      if (Date.now() - lastPing.current > 5000) {
-        setSenderOnline(false);
+      if (Date.now() - lastPing.current > 10000) { // 10 second timeout
+        if(senderOnline) setSenderOnline(false);
       }
     }, 3000);
 
     return () => {
       cleanup();
     };
-  }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status]);
+  }, [obfuscatedCode, downloadFile, requestNextFileFromQueue, status, senderOnline]);
 
 
   const requestFiles = (fileNames: string[]) => {
@@ -265,21 +270,16 @@ export default function DownloadPage() {
     }
 
     if (peerRef.current && !peerRef.current.destroyed) {
-        const isQueueRunning = filesToDownloadRef.current.length > 0;
-        filesToRequest.forEach(name => {
-            if (!filesToDownloadRef.current.includes(name)) {
-                filesToDownloadRef.current.push(name)
-            }
-        });
+        const isQueueAlreadyRunning = filesToDownloadRef.current.length > 0;
+        filesToDownloadRef.current.push(...filesToRequest);
         
-        if (!isQueueRunning) {
+        if (!isQueueAlreadyRunning) {
             requestNextFileFromQueue();
         }
     } else {
-        toast({ title: 'Error', description: 'Not connected to sender.', variant: 'destructive' });
+        toast({ title: 'Not Connected', description: 'Cannot download files. Not connected to sender.', variant: 'destructive' });
     }
   };
-
 
   const handleDownloadSelected = () => {
     requestFiles(selectedFiles);
@@ -414,7 +414,7 @@ export default function DownloadPage() {
                                   {file.scanStatus === 'scanning' && <Loader className="animate-spin text-primary"/>}
                                   {file.scanStatus === 'scanned' && <ShieldAlert className="text-green-500"/>}
 
-                                  <Button size="sm" onClick={() => requestFiles([file.name])} disabled={isReceiving && !isSelected}>
+                                  <Button size="sm" onClick={() => requestFiles([file.name])} disabled={isReceiving && currentTransferRef.current?.fileName !== file.name}>
                                       <Download className="mr-2"/> {isDownloaded ? 'Save Again' : 'Download'}
                                   </Button>
                               </div>
