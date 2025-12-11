@@ -22,6 +22,7 @@ export default function Home() {
   const [shareCode, setShareCode] = useState('');
   
   const peerRef = useRef<Peer.Instance | null>(null);
+  const offerSentRef = useRef(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -29,6 +30,7 @@ export default function Home() {
     const filesArray = Array.from(selectedFiles);
     setFiles(filesArray);
     setIsConnecting(true);
+    offerSentRef.current = false; // Reset flag for new session
 
     if (peerRef.current) {
       peerRef.current.destroy();
@@ -38,9 +40,10 @@ export default function Home() {
     peerRef.current = newPeer;
     
     newPeer.on('signal', async (offer) => {
-      if (newPeer.destroyed || !newPeer.initiator || offer.type !== 'offer' || !offer.sdp) {
+      if (newPeer.destroyed || offer.type !== 'offer' || offerSentRef.current) {
           return;
       }
+      offerSentRef.current = true;
       
       const supabase = createClient();
       const newShortCode = generateShareCode();
@@ -140,10 +143,11 @@ export default function Home() {
         const chunkSize = 64 * 1024; // 64KB
         let offset = 0;
         
+        if (peer.destroyed) return;
         peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name } }));
 
         const readSlice = () => {
-            if (!file) return;
+            if (!file || peer.destroyed) return;
             const slice = file.slice(offset, offset + chunkSize);
             const reader = new FileReader();
             
@@ -161,7 +165,9 @@ export default function Home() {
                             readSlice();
                         } else {
                             console.log('File sent completely:', file.name);
-                            peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
+                            if (!peer.destroyed) {
+                                peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name } }));
+                            }
                         }
                     } catch(err) {
                         console.error("Error sending file chunk:", err);
@@ -177,7 +183,7 @@ export default function Home() {
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
-      // handleReset(); // This was causing the error
+      handleReset();
     });
 
     newPeer.on('error', (err) => {

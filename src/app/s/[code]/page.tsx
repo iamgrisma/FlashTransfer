@@ -34,10 +34,12 @@ export default function DownloadPage() {
   const { toast } = useToast();
   const lastPing = useRef(Date.now());
   const shareIdRef = useRef<string | null>(null);
+  const answerSentRef = useRef(false);
 
   useEffect(() => {
     if (!obfuscatedCode) return;
     const supabase = createClient();
+    answerSentRef.current = false;
 
     const peer = new Peer({
       initiator: false,
@@ -65,7 +67,9 @@ export default function DownloadPage() {
         }
         
         shareIdRef.current = shareId;
-        peer.signal(JSON.parse(p2pOffer));
+        if (!peerRef.current?.destroyed) {
+            peer.signal(JSON.parse(p2pOffer));
+        }
 
       } catch (err: any) {
          setError(err.message || 'An unexpected error occurred while fetching the session.');
@@ -85,11 +89,15 @@ export default function DownloadPage() {
     }, 3000);
 
     peer.on('signal', async (signalData) => {
-      if (!shareIdRef.current || (signalData as any).renegotiate || (signalData as any).candidate) return;
-      await supabase
-        .from('fileshare')
-        .update({ p2p_answer: JSON.stringify(signalData) })
-        .eq('id', shareIdRef.current);
+      if (peer.destroyed || answerSentRef.current || (signalData as any).renegotiate || (signalData as any).candidate) return;
+      
+      if(signalData.type === 'answer') {
+        answerSentRef.current = true;
+        await supabase
+          .from('fileshare')
+          .update({ p2p_answer: JSON.stringify(signalData) })
+          .eq('id', shareIdRef.current!);
+      }
     });
 
     peer.on('connect', () => {
@@ -141,7 +149,11 @@ export default function DownloadPage() {
             case 'transferComplete':
                 const completedFile = files.find(f => f.name === payload.fileName);
                 if (completedFile) {
-                  setDownloadProgress(prev => ({...prev, [payload.fileName]: 100}));
+                    setDownloadProgress(prev => ({ ...prev, [payload.fileName]: 100 }));
+                    // If the file was just downloaded and is part of the selected files, save it.
+                    if (selectedFiles.includes(payload.fileName)) {
+                        downloadSingleFile(payload.fileName);
+                    }
                 }
                 
                 const allSelectedFiles = selectedFiles.length > 0 ? selectedFiles : files.map(f => f.name);
@@ -169,16 +181,21 @@ export default function DownloadPage() {
     peer.on('error', (err) => {
       console.error('Peer error', err);
       setSenderOnline(false);
-      setError('A connection error occurred. The sender may have left.');
-      setStatus('Error');
+      if (status !== 'Completed' && status !== 'Error') {
+        setError('A connection error occurred. The sender may have left.');
+        setStatus('Error');
+      }
     });
 
     return () => {
-      peer.destroy();
-      peerRef.current = null;
+      if(peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
       clearInterval(pingCheck);
     };
-  }, [obfuscatedCode, status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obfuscatedCode]);
 
 
   const requestFile = (fileName: string) => {
@@ -197,6 +214,7 @@ export default function DownloadPage() {
     const file = files.find(f => f.name === fileName);
     if (!file || !fileChunksRef.current[fileName] || fileChunksRef.current[fileName].length === 0) {
         toast({ title: 'Download Failed', description: `File data for ${fileName} not found. Please request the file again.`, variant: 'destructive'});
+        setDownloadProgress(prev => ({...prev, [fileName]: 0}));
         return;
     };
 
@@ -212,15 +230,20 @@ export default function DownloadPage() {
   }
 
   const handleDownloadSelected = () => {
-    selectedFiles.forEach(fileName => {
-        if((downloadProgress[fileName] || 0) < 100) {
-           requestFile(fileName);
+    // First, ensure all selected files are part of the selection state
+    const filesToDownload = files.filter(f => selectedFiles.includes(f.name));
+    
+    filesToDownload.forEach(file => {
+        if((downloadProgress[file.name] || 0) < 100) {
+           requestFile(file.name);
         } else {
-            downloadSingleFile(fileName);
+            downloadSingleFile(file.name);
         }
     });
   }
   const handleDownloadAll = () => {
+    // Select all files before downloading
+    setSelectedFiles(files.map(f => f.name));
     files.forEach(file => {
         if((downloadProgress[file.name] || 0) < 100) {
             requestFile(file.name);
@@ -385,5 +408,3 @@ export default function DownloadPage() {
     </div>
   );
 }
-
-    
