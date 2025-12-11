@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import FileUpload from '@/components/file-upload';
 import SharePanel from '@/components/share-panel';
 import ReceiveForm from '@/components/receive-form';
@@ -23,6 +23,7 @@ export default function Home() {
   const { toast } = useToast();
   const channelRef = useRef<RealtimeChannel | null>(null);
   const [transferProgress, setTransferProgress] = useState<{ [fileName: string]: number }>({});
+  const offerSentRef = useRef(false);
 
   const handleReset = useCallback(() => {
     peerRef.current?.destroy();
@@ -35,21 +36,25 @@ export default function Home() {
     setShareId(null);
     setShareCode('');
     setTransferProgress({});
+    offerSentRef.current = false;
   }, []);
 
   // SENDER: Main logic to create a share session
   const createShareSession = useCallback(async (initialFiles: File[]) => {
     handleReset();
+    setFiles(initialFiles);
     const supabase = createClient();
     
     // SENDER is the initiator
     const newPeer = new Peer({ initiator: true, trickle: false });
     peerRef.current = newPeer;
+    offerSentRef.current = false;
 
     // SENDER: When the offer signal is ready, save it to the database
     newPeer.on('signal', async (offer) => {
         // This event can fire multiple times, but we only want to create the share session once.
-        if (shareId) return;
+        if (offerSentRef.current || (offer as any).renegotiate || (offer as any).candidate) return;
+        offerSentRef.current = true;
 
         const newShortCode = generateShareCode();
         const newObfuscatedCode = obfuscateCode(newShortCode);
@@ -76,7 +81,6 @@ export default function Home() {
 
         const newShareId = data.id;
         setShareId(newShareId);
-        setFiles(initialFiles);
         setShareCode(newObfuscatedCode);
 
         // SENDER: Listen on a unique channel for the receiver's answer
@@ -116,21 +120,11 @@ export default function Home() {
         }
     });
 
-    newPeer.on('close', () => {
-        console.log('Peer disconnected.');
-        toast({ title: 'Recipient Disconnected', description: 'A file transfer session has ended.'});
-        // Do not reset the session here automatically. Let the user decide.
-    });
-
     newPeer.on('error', (err) => {
-        console.error('Peer error:', err);
-        // Avoid resetting on every error, as some are non-fatal
-        if (!peerRef.current?.destroyed) {
-            toast({ variant: 'destructive', title: 'Connection Error', description: `An error occurred: ${err.message}` });
-        }
+        console.error('Sender Peer error:', err);
     });
 
-  }, [toast, files, handleReset, shareId]);
+  }, [toast, handleReset, files]);
 
   const sendFile = (file: File, peer: Peer.Instance) => {
       const chunkSize = 64 * 1024; // 64KB
@@ -166,7 +160,6 @@ export default function Home() {
               }
           } catch(err) {
               console.error("Error sending file chunk:", err);
-              handleReset();
           }
       };
       
@@ -191,7 +184,7 @@ export default function Home() {
             size: file.size,
             type: file.type,
         }));
-        if (peerRef.current && !peerRef.current.destroyed) {
+        if (peerRef.current && peerRef.current.connected) {
             peerRef.current.send(JSON.stringify({ type: 'fileDetails', payload: filesDetails }));
         }
     }
@@ -268,5 +261,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
