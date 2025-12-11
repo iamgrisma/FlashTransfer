@@ -11,7 +11,6 @@ import { createClient } from '@/lib/supabase/client';
 import Peer from 'simple-peer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
 import { generateShareCode, obfuscateCode } from '@/lib/code';
 
 export default function Home() {
@@ -23,7 +22,20 @@ export default function Home() {
   
   const peerRef = useRef<Peer.Instance | null>(null);
   const { toast } = useToast();
-  const router = useRouter();
+  const offerSentRef = useRef(false);
+
+  const handleReset = () => {
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+    setFiles([]);
+    setIsConnecting(false);
+    setTransferProgress({});
+    setShareLink('');
+    setShareCode('');
+    offerSentRef.current = false;
+  };
 
   const handleFileSelect = (selectedFiles: FileList) => {
     const filesArray = Array.from(selectedFiles);
@@ -34,15 +46,15 @@ export default function Home() {
       peerRef.current.destroy();
     }
     
+    offerSentRef.current = false;
     const newPeer = new Peer({ initiator: true, trickle: false });
     peerRef.current = newPeer;
-    let offerSent = false;
     
     newPeer.on('signal', async (offer) => {
-      if (newPeer.destroyed || offer.type !== 'offer' || offerSent) {
+      if (newPeer.destroyed || offer.type !== 'offer' || offerSentRef.current) {
           return;
       }
-      offerSent = true;
+      offerSentRef.current = true;
       
       const supabase = createClient();
       const newShortCode = generateShareCode();
@@ -135,8 +147,10 @@ export default function Home() {
                         }
                     } catch(err) {
                         console.error("Error sending file chunk:", err);
-                        toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
-                        handleReset();
+                        if(!peer.destroyed){
+                           toast({ variant: 'destructive', title: 'Transfer Failed', description: 'Could not send file data.' });
+                           handleReset();
+                        }
                     }
                 }
             };
@@ -186,8 +200,10 @@ export default function Home() {
     
     newPeer.on('close', () => {
       console.log('Peer disconnected');
-      toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
-      handleReset();
+      if (!newPeer.destroyed) {
+        toast({ title: 'Recipient Disconnected', description: 'The file transfer session has ended.'});
+        handleReset();
+      }
     });
 
     newPeer.on('error', (err) => {
@@ -197,18 +213,6 @@ export default function Home() {
         handleReset();
       }
     });
-  };
-
-  const handleReset = () => {
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
-    }
-    setFiles([]);
-    setIsConnecting(false);
-    setTransferProgress({});
-    setShareLink('');
-    setShareCode('');
   };
 
   return (
