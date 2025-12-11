@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
@@ -136,10 +135,6 @@ export default function DownloadPage() {
         }
     });
 
-    peer.on('close', () => {
-        setSenderOnline(false);
-    });
-
     peer.on('error', (err) => {
         console.error('Receiver Peer error', err);
         setSenderOnline(false);
@@ -205,6 +200,11 @@ export default function DownloadPage() {
     if (!obfuscatedCode) return;
     
     initializeConnection();
+
+    // DO NOT ADD CLEANUP LOGIC HERE.
+    // The peer connection should only be destroyed when the page is unloaded,
+    // which the browser handles. React's cleanup would destroy it on re-renders,
+    // which is the source of the "session closing" bug.
 
   }, [obfuscatedCode, initializeConnection]);
 
@@ -393,5 +393,3 @@ export default function DownloadPage() {
     </div>
   );
 }
-
-    
