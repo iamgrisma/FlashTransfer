@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
@@ -87,6 +88,7 @@ export default function DownloadPage() {
     peer.on('data', (data) => {
         setSenderOnline(true);
 
+        // Handle file chunks
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
             if (currentTransferRef.current) {
                 const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -99,6 +101,7 @@ export default function DownloadPage() {
             return;
         }
         
+        // Handle JSON signals
         try {
             const parsedData = JSON.parse(data.toString());
             const { type, payload } = parsedData;
@@ -137,22 +140,26 @@ export default function DownloadPage() {
 
     peer.on('error', (err) => {
         console.error('Receiver Peer error', err);
-        setSenderOnline(false);
+        setError('Connection to sender lost.');
         setStatus('Error');
-        setError('Connection lost. Please ensure sender is still online and refresh.');
+        setSenderOnline(false);
     });
 
     peer.on('close', () => {
         setSenderOnline(false);
+        if (status !== 'Completed' && status !== 'Error') {
+          setError('Sender has disconnected.');
+          setStatus('Error');
+        }
     });
-  }, [downloadFile, requestNextFileFromQueue, files]);
+  }, [downloadFile, requestNextFileFromQueue, files, status]);
   
-  const initializeConnection = useCallback(async () => {
+  const initializeConnection = useCallback(async (code: string) => {
     try {
         const response = await fetch('/api/share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ obfuscatedCode }),
+            body: JSON.stringify({ obfuscatedCode: code }),
         });
 
         if (!response.ok) {
@@ -191,7 +198,7 @@ export default function DownloadPage() {
         });
 
         // RECEIVER: Signal with the offer from the sender
-        newPeer.signal(JSON.parse(p2pOffer));
+        newPeer.signal(p2pOffer);
         
         setupPeerEvents(newPeer);
 
@@ -199,14 +206,14 @@ export default function DownloadPage() {
          setError(err.message || 'An unexpected error occurred.');
          setStatus('Error');
     }
-  }, [obfuscatedCode, setupPeerEvents]);
+  }, [setupPeerEvents]);
 
 
   useEffect(() => {
-    if (!obfuscatedCode) return;
+    if (obfuscatedCode) {
+      initializeConnection(obfuscatedCode);
+    }
     
-    initializeConnection();
-
     return () => {
         peerRef.current?.destroy();
         if (channelRef.current) {
@@ -323,6 +330,13 @@ export default function DownloadPage() {
             </div>
           }
           
+          {files.length === 0 && status === 'Waiting' && !error && (
+            <div className="flex flex-col items-center justify-center space-y-4 p-10">
+              <Loader className="h-12 w-12 text-primary animate-spin" />
+              <p>Waiting for sender to provide files...</p>
+            </div>
+          )}
+
           {files.length > 0 && !error && (
             <div>
               <Alert variant="destructive" className="mb-6 bg-destructive/10">
@@ -345,12 +359,11 @@ export default function DownloadPage() {
                   {files.map(file => {
                       const progress = downloadProgress[file.name] || 0;
                       const isDownloaded = progress === 100;
-                      const isSelected = selectedFiles.includes(file.name);
                       return (
                           <div key={file.name} className="flex items-center space-x-4 p-3 rounded-md border hover:bg-secondary/50">
                               <Checkbox 
                                 id={`select-${file.name}`} 
-                                checked={isSelected}
+                                checked={selectedFiles.includes(file.name)}
                                 onCheckedChange={(checked) => handleSelectFile(file.name, !!checked)}
                                 disabled={isReceiving}
                               />

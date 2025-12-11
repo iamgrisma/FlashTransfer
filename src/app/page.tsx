@@ -123,9 +123,6 @@ export default function Home() {
         console.error('Sender Peer error:', err);
     });
 
-    // DO NOT automatically reset the session on close. The share link must remain active.
-    // newPeer.on('close', () => { ... });
-
   }, [toast, handleReset, files]);
 
   const sendFile = (file: File, peer: Peer.Instance) => {
@@ -263,7 +260,5 @@ export default function Home() {
     </div>
   );
 }
-
-    
 
     
