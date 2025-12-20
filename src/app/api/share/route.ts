@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { reverseObfuscateCode } from '@/lib/code';
 import { verifyToken } from '@/lib/auth';
 
+export const runtime = 'edge';
+
 // Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 

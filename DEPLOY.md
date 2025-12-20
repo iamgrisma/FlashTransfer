@@ -41,16 +41,15 @@ cp .env.example .env.local
 # Edit .env.local with your actual values
 ```
 
-**Production (Cloudflare):**
+**Production (Cloudflare Workers):**
 ```bash
 # Set via CLI
-npx wrangler pages secret put NEXT_PUBLIC_SUPABASE_URL
-npx wrangler pages secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
-npx wrangler pages secret put NEXT_PUBLIC_APP_URL
-npx wrangler pages secret put ANALYTICS_API_KEY
+npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL
+npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
+npx wrangler secret put SECRET_KEY
 
 # Or via Dashboard:
-# Workers & Pages → Your project → Settings → Environment variables
+# Workers & Pages → Your project → Settings → Variables and Secrets
 ```
 
 ### Local Development
