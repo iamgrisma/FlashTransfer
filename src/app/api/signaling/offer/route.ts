@@ -3,15 +3,17 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // Use Service Role key to bypass RLS for updates
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Must be initialized inside handler to avoid build-time errors with missing env vars
 
 export const runtime = 'edge';
 
 export async function POST(request: Request) {
     try {
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
         const { id, p2p_offer } = await request.json();
 
         if (!id || !p2p_offer) {
