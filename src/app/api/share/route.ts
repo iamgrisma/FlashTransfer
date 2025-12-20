@@ -43,7 +43,8 @@ export async function POST(request: Request) {
     }
 
     const timestamp = parseInt(timestampHeader, 10);
-    if (!verifyToken(authToken, timestamp)) {
+    const isValid = await verifyToken(authToken, timestamp);
+    if (!isValid) {
       return NextResponse.json(
         { message: 'Unauthorized - Invalid or expired token' },
         { status: 401 }

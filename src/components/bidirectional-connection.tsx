@@ -39,27 +39,61 @@ export default function BidirectionalConnection({
     const shareIdRef = useRef<string | null>(null);
     const { toast } = useToast();
 
+    const connectionSuccessfulRef = useRef(false);
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {
-            if (peerRef.current) {
+            // Only destroy peer if we haven't successfully connected/handed it off
+            if (peerRef.current && !connectionSuccessfulRef.current) {
+                console.log('Cleaning up peer (unsuccessful connection)');
                 peerRef.current.destroy();
             }
+            // Always unsubscribe from signaling channel
             if (channelRef.current) {
                 channelRef.current.unsubscribe();
             }
         };
     }, []);
 
-    const handleCopy = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setHasCopied(true);
-        toast({ title: 'Copied!', description: 'Connection code copied to clipboard' });
-        setTimeout(() => setHasCopied(false), 2000);
+    // Session Persistence Helpers
+    const saveSession = (mode: ConnectionMode, code: string, id?: string) => {
+        if (typeof window === 'undefined') return;
+        sessionStorage.setItem('ft_session', JSON.stringify({ mode, code, id }));
     };
 
+    const clearSession = () => {
+        if (typeof window === 'undefined') return;
+        sessionStorage.removeItem('ft_session');
+    };
+
+    // Load session on mount
+    useEffect(() => {
+        const stored = sessionStorage.getItem('ft_session');
+        if (stored) {
+            try {
+                const session = JSON.parse(stored);
+                if (session.mode === 'create') {
+                    setConnectionCode(session.code);
+                    if (session.id) shareIdRef.current = session.id;
+                    setMode('create');
+                    // Automatically resume hosting
+                    createConnection(true); // true = resume
+                } else if (session.mode === 'join') {
+                    setInputCode(session.code);
+                    // For joiners, we just pre-fill the code. 
+                    // Auto-join might be annoying if they just wanted to check the code.
+                    // But user asked for connection retention.
+                    // Let's at least set the mode so UI aligns.
+                }
+            } catch (e) {
+                console.error('Failed to parse session', e);
+            }
+        }
+    }, []);
+
     // Create a new connection (initiator)
-    const createConnection = useCallback(async () => {
+    const createConnection = useCallback(async (isResume = false) => {
         setIsConnecting(true);
         setError(null);
 
@@ -68,68 +102,102 @@ export default function BidirectionalConnection({
             const newPeer = new Peer({ initiator: true, trickle: false });
             peerRef.current = newPeer;
 
+            // If resuming, use existing ID. If not, generate new code.
+            const shortCode = isResume && connectionCode ? connectionCode : generateShareCode();
+            const obfuscatedCode = isResume ? connectionCode : obfuscateCode(shortCode);
+
             newPeer.on('signal', async (offer) => {
                 if (offer.type !== 'offer') return;
 
-                const shortCode = generateShareCode();
-                const obfuscatedCode = obfuscateCode(shortCode);
-                const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                if (isResume && shareIdRef.current) {
+                    // RESUME: Update existing record via API
+                    const response = await fetch('/api/signaling/offer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            id: shareIdRef.current,
+                            p2p_offer: offer
+                        })
+                    });
 
-                const { data, error: dbError } = await supabase
-                    .from('fileshare')
-                    .insert([{
-                        short_code: shortCode,
-                        p2p_offer: JSON.stringify(offer),
-                        transfer_mode: 'bidirectional',
-                        expires_at: expiresAt
-                    }])
-                    .select('id')
-                    .single();
+                    if (!response.ok) throw new Error('Failed to update session offer');
 
-                if (dbError || !data) {
-                    throw new Error('Failed to create connection session');
+                    // Re-subscribe to channel
+                    const channel = supabase.channel(`share-session-${shareIdRef.current}`);
+                    channelRef.current = channel;
+                    channel.on('broadcast', { event: 'answer' }, ({ payload }) => {
+                        if (peerRef.current && !peerRef.current.destroyed && payload.answer) {
+                            peerRef.current.signal(payload.answer);
+                        }
+                    }).subscribe();
+
+                } else {
+                    // NEW: Insert new record
+                    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                    const { data, error: dbError } = await supabase
+                        .from('fileshare')
+                        .insert([{
+                            short_code: shortCode,
+                            p2p_offer: JSON.stringify(offer),
+                            transfer_mode: 'bidirectional',
+                            expires_at: expiresAt
+                        }])
+                        .select('id')
+                        .single();
+
+                    if (dbError || !data) throw new Error('Failed to create connection session');
+
+                    shareIdRef.current = data.id;
+                    setConnectionCode(obfuscatedCode);
+                    setMode('create');
+                    saveSession('create', obfuscatedCode, data.id);
+
+                    // Listen for answer
+                    const channel = supabase.channel(`share-session-${data.id}`);
+                    channelRef.current = channel;
+                    channel.on('broadcast', { event: 'answer' }, ({ payload }) => {
+                        if (peerRef.current && !peerRef.current.destroyed && payload.answer) {
+                            peerRef.current.signal(payload.answer);
+                        }
+                    }).subscribe();
                 }
-
-                shareIdRef.current = data.id;
-                setConnectionCode(obfuscatedCode);
-                setMode('create');
-
-                // Listen for answer
-                const channel = supabase.channel(`share-session-${data.id}`);
-                channelRef.current = channel;
-
-                channel.on('broadcast', { event: 'answer' }, ({ payload }) => {
-                    if (peerRef.current && !peerRef.current.destroyed && payload.answer) {
-                        peerRef.current.signal(payload.answer);
-                    }
-                }).subscribe();
             });
 
             newPeer.on('connect', () => {
                 setIsConnected(true);
                 setIsConnecting(false);
                 toast({ title: 'Connected!', description: 'Peer-to-peer connection established' });
-                onConnectionEstablished(newPeer, connectionCode, true);
+                connectionSuccessfulRef.current = true;
+                onConnectionEstablished(newPeer, isResume ? connectionCode : obfuscatedCode, true);
             });
 
             newPeer.on('error', (err) => {
                 console.error('Peer error:', err);
-                setError('Connection error occurred');
-                setIsConnecting(false);
-                onConnectionLost();
+                // Don't kill session on error, just warn
+                toast({ title: 'Connection Issue', description: 'Retrying connection...', variant: 'destructive' });
+                // Attempt recovery? For now just log.
             });
 
             newPeer.on('close', () => {
+                // Host Recovery: If peer closes, we stay "Hosted" but create a new peer for next person
                 setIsConnected(false);
-                toast({ title: 'Disconnected', description: 'Peer connection closed', variant: 'destructive' });
-                onConnectionLost();
+                connectionSuccessfulRef.current = false;
+
+                // Regenerate offer for next connection
+                toast({ title: 'Peer Disconnected', description: 'Waiting for reconnection...' });
+
+                // Cleanup old peer
+                if (peerRef.current) peerRef.current.destroy();
+
+                // Trigger resume to generate new offer
+                createConnection(true);
             });
 
         } catch (err: any) {
             setError(err.message || 'Failed to create connection');
             setIsConnecting(false);
         }
-    }, [connectionCode, onConnectionEstablished, onConnectionLost, toast]);
+    }, [connectionCode, onConnectionEstablished, toast]);
 
     // Join an existing connection (answerer)
     const joinConnection = useCallback(async () => {
@@ -184,21 +252,23 @@ export default function BidirectionalConnection({
                 setIsConnecting(false);
                 setConnectionCode(inputCode);
                 setMode('join');
+                saveSession('join', inputCode, data.id); // Save session
                 toast({ title: 'Connected!', description: 'Peer-to-peer connection established' });
+                connectionSuccessfulRef.current = true;
                 onConnectionEstablished(newPeer, inputCode, false);
             });
 
             newPeer.on('error', (err) => {
                 console.error('Peer error:', err);
-                setError('Connection error occurred');
+                toast({ title: 'Error', description: 'Connection failed. Try refreshing.', variant: 'destructive' });
                 setIsConnecting(false);
-                onConnectionLost();
             });
 
             newPeer.on('close', () => {
                 setIsConnected(false);
-                toast({ title: 'Disconnected', description: 'Peer connection closed', variant: 'destructive' });
+                toast({ title: 'Disconnected', description: 'Host connection lost', variant: 'destructive' });
                 onConnectionLost();
+                // Receiver doesn't auto-recover usually, but state is saved so they can refresh/rejoin
             });
 
             newPeer.signal(offer);
@@ -210,6 +280,7 @@ export default function BidirectionalConnection({
     }, [inputCode, onConnectionEstablished, onConnectionLost, toast]);
 
     const handleDisconnect = () => {
+        clearSession(); // Explicit disconnect clears storage
         if (peerRef.current) {
             peerRef.current.destroy();
         }
@@ -247,7 +318,7 @@ export default function BidirectionalConnection({
                 {!isConnected && mode === 'none' && (
                     <div className="space-y-3">
                         <Button
-                            onClick={createConnection}
+                            onClick={() => createConnection(false)}
                             disabled={isConnecting}
                             className="w-full"
                             size="lg"
@@ -289,6 +360,7 @@ export default function BidirectionalConnection({
                         <div className="text-center p-4 bg-secondary/50 rounded-lg">
                             <Loader className="mx-auto h-8 w-8 animate-spin text-primary mb-2" />
                             <p className="text-sm text-muted-foreground">Waiting for peer to connect...</p>
+                            <p className="text-xs text-muted-foreground mt-1">If peer disconnects, we'll auto-recover.</p>
                         </div>
 
                         <div className="space-y-2">
@@ -331,26 +403,52 @@ export default function BidirectionalConnection({
                     </div>
                 )}
 
+                {!isConnected && mode === 'join' && (
+                    <div className="text-center p-8 space-y-4 animate-in fade-in">
+                        <div className="p-4 bg-secondary/50 rounded-lg">
+                            <Loader className="mx-auto h-8 w-8 animate-spin text-primary mb-2" />
+                            <p className="text-sm text-muted-foreground">Reconnecting to session {connectionCode}...</p>
+                        </div>
+                        <Button onClick={handleDisconnect} variant="ghost">Cancel</Button>
+                    </div>
+                )}
+
                 {isConnected && (
                     <div className="space-y-4 animate-in fade-in">
                         <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg text-center">
                             <Wifi className="mx-auto h-8 w-8 text-green-500 mb-2" />
                             <p className="font-medium text-green-700 dark:text-green-400">Connection Established!</p>
-                            <p className="text-sm text-muted-foreground">You can now send and receive files</p>
+                            <div className="flex items-center justify-center gap-2 mt-1">
+                                <span className={`h-2 w-2 rounded-full ${remotePeerStatus === 'online' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                                <p className="text-sm text-muted-foreground capitalize">Peer {remotePeerStatus}</p>
+                            </div>
                         </div>
 
                         <div className="space-y-2">
                             <Label>Connection Code</Label>
-                            <Input
-                                value={connectionCode}
-                                readOnly
-                                className="text-center text-xl tracking-widest font-mono"
-                            />
+                            <div className="flex gap-2">
+                                <Input
+                                    value={connectionCode}
+                                    readOnly
+                                    className="text-center text-xl tracking-widest font-mono"
+                                />
+                                <Button onClick={() => handleCopy(connectionCode)} size="icon" variant="outline">
+                                    <Copy className="h-4 w-4" />
+                                </Button>
+                            </div>
                         </div>
 
-                        <Button onClick={handleDisconnect} variant="destructive" className="w-full">
-                            Disconnect
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button onClick={handleDisconnect} variant="outline" className="flex-1">
+                                Disconnect
+                            </Button>
+
+                            {mode === 'create' && (
+                                <Button onClick={handleRotateSession} variant="destructive" className="flex-1">
+                                    End & New Code
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 )}
 

@@ -6,7 +6,7 @@ import BidirectionalConnection from '@/components/bidirectional-connection';
 import TransferPanel from '@/components/transfer-panel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Zap, Lock, ArrowLeftRight, Users, BarChart3, Shield } from 'lucide-react';
+import { Zap, Lock, ArrowLeftRight, Users, BarChart3, Shield, File as FileIcon, UploadCloud } from 'lucide-react';
 import { initSession, getSession, endSession } from '@/lib/analytics';
 import Link from 'next/link';
 
@@ -15,6 +15,7 @@ export default function Home() {
   const [connectionCode, setConnectionCode] = useState('');
   const [isInitiator, setIsInitiator] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [preSelectedFiles, setPreSelectedFiles] = useState<File[]>([]);
 
   const handleConnectionEstablished = (
     newPeer: Peer.Instance,
@@ -39,6 +40,11 @@ export default function Home() {
     setPeer(null);
     setConnectionCode('');
     setIsConnected(false);
+    // Don't clear preSelectedFiles so they persist if connection fails
+  };
+
+  const handlePreSelection = (files: FileList) => {
+    setPreSelectedFiles(prev => [...prev, ...Array.from(files)]);
   };
 
   return (
@@ -78,7 +84,58 @@ export default function Home() {
                   completely private. It's like being in the same room.
                 </p>
 
-                <div className="pt-8">
+                {/* Pre-Connection File Selection */}
+                <div className="max-w-xl mx-auto py-8">
+                  <div className="bg-card border rounded-xl p-6 shadow-sm">
+                    <h3 className="font-semibold mb-4 flex items-center justify-center gap-2">
+                      <Zap className="h-4 w-4 text-yellow-500" />
+                      Start by selecting files (Optional)
+                    </h3>
+                    {preSelectedFiles.length > 0 ? (
+                      <div className="space-y-4">
+                        <div className="bg-secondary/50 p-4 rounded-lg text-left">
+                          <p className="font-medium mb-2">{preSelectedFiles.length} file(s) ready to send:</p>
+                          <ul className="space-y-1 text-sm text-muted-foreground max-h-32 overflow-y-auto">
+                            {preSelectedFiles.map((f, i) => (
+                              <li key={i} className="flex items-center gap-2">
+                                <FileIcon className="h-4 w-4" />
+                                <span className="truncate">{f.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="flex gap-2 justify-center">
+                          <Button variant="outline" onClick={() => setPreSelectedFiles([])}>Clear</Button>
+                          <div className="relative">
+                            <input
+                              type="file"
+                              multiple
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                              onChange={(e) => e.target.files && handlePreSelection(e.target.files)}
+                            />
+                            <Button>Add More</Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative group cursor-pointer border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 rounded-lg p-8 transition-all">
+                        <input
+                          type="file"
+                          multiple
+                          className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                          onChange={(e) => e.target.files && handlePreSelection(e.target.files)}
+                        />
+                        <div className="space-y-2">
+                          <UploadCloud className="h-10 w-10 mx-auto text-muted-foreground group-hover:text-primary transition-colors" />
+                          <p className="text-sm font-medium">Click to select files</p>
+                          <p className="text-xs text-muted-foreground">or drag and drop</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-4">
                   <BidirectionalConnection
                     onConnectionEstablished={handleConnectionEstablished}
                     onConnectionLost={handleConnectionLost}
@@ -190,9 +247,9 @@ export default function Home() {
                       1
                     </div>
                     <div>
-                      <h4 className="font-semibold mb-1">Create or Join a Connection</h4>
+                      <h4 className="font-semibold mb-1">Select Files (Optional)</h4>
                       <p className="text-sm text-muted-foreground">
-                        One person creates a connection code, the other enters it. Simple as that.
+                        Choose files you want to send upfront, or add them later.
                       </p>
                     </div>
                   </div>
@@ -202,9 +259,9 @@ export default function Home() {
                       2
                     </div>
                     <div>
-                      <h4 className="font-semibold mb-1">Direct P2P Connection Established</h4>
+                      <h4 className="font-semibold mb-1">Create or Join</h4>
                       <p className="text-sm text-muted-foreground">
-                        WebRTC creates an encrypted, direct connection between your browsers.
+                        Generate a code to invite a peer, or enter a code to join them.
                       </p>
                     </div>
                   </div>
@@ -214,9 +271,9 @@ export default function Home() {
                       3
                     </div>
                     <div>
-                      <h4 className="font-semibold mb-1">Share Files Both Ways</h4>
+                      <h4 className="font-semibold mb-1">Instant Transfer</h4>
                       <p className="text-sm text-muted-foreground">
-                        Both of you can drag & drop files to send. Files transfer instantly, encrypted end-to-end.
+                        Files fly directly between your devices. No clouds, no waiting.
                       </p>
                     </div>
                   </div>
@@ -237,6 +294,7 @@ export default function Home() {
               peer={peer!}
               connectionCode={connectionCode}
               isInitiator={isInitiator}
+              initialFiles={preSelectedFiles}
             />
           </section>
         )}

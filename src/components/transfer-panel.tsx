@@ -18,14 +18,15 @@ interface TransferPanelProps {
     peer: Peer.Instance;
     connectionCode: string;
     isInitiator: boolean;
+    initialFiles?: File[];
 }
 
 type FileTransferProgress = {
     [fileName: string]: number;
 };
 
-export default function TransferPanel({ peer, connectionCode, isInitiator }: TransferPanelProps) {
-    const [outgoingFiles, setOutgoingFiles] = useState<File[]>([]);
+export default function TransferPanel({ peer, connectionCode, isInitiator, initialFiles = [] }: TransferPanelProps) {
+    const [outgoingFiles, setOutgoingFiles] = useState<File[]>(initialFiles);
     const [incomingFiles, setIncomingFiles] = useState<ScannedFile[]>([]);
     const [selectedIncoming, setSelectedIncoming] = useState<string[]>([]);
     const [sendProgress, setSendProgress] = useState<FileTransferProgress>({});
@@ -40,9 +41,45 @@ export default function TransferPanel({ peer, connectionCode, isInitiator }: Tra
     } | null>(null);
     const downloadQueueRef = useRef<string[]>([]);
 
+    // Initial sync and handshake
+    useEffect(() => {
+        if (peer && !peer.destroyed) {
+            if (initialFiles.length > 0) {
+                // Sender logic: Wait for request or just send update
+                // We'll send update immediately just in case, but also listen for requests
+                const fileDetails: FileDetails[] = initialFiles.map(f => ({
+                    name: f.name,
+                    size: f.size,
+                    type: f.type
+                }));
+
+                try {
+                    peer.send(JSON.stringify({
+                        type: 'fileDetails',
+                        payload: fileDetails
+                    }));
+                } catch (err) {
+                    console.error('Failed to sync initial files:', err);
+                }
+            }
+
+            if (!isInitiator) {
+                // Receiver logic: Request file list immediately on connection
+                setTimeout(() => {
+                    try {
+                        console.log('Requesting file list from host...');
+                        peer.send(JSON.stringify({ type: 'requestFileList' }));
+                    } catch (err) {
+                        console.error('Failed to request file list:', err);
+                    }
+                }, 500);
+            }
+        }
+    }, [peer, initialFiles, isInitiator]);
+
     // Send file to peer
     const sendFile = useCallback((file: File) => {
-        const chunkSize = 64 * 1024; // 64KB chunks
+        const chunkSize = 256 * 1024; // 256KB chunks (faster)
         let offset = 0;
 
         if (!peer || peer.destroyed) {
@@ -85,6 +122,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator }: Tra
 
             const readNextChunk = () => {
                 if (offset >= file.size || peer.destroyed) return;
+                // Reading slice is fast, no need to over-optimize unless using SharedArrayBuffer
                 const slice = file.slice(offset, offset + chunkSize);
                 reader.readAsArrayBuffer(slice);
             };
@@ -147,6 +185,21 @@ export default function TransferPanel({ peer, connectionCode, isInitiator }: Tra
                         currentTransferRef.current = null;
                         downloadQueueRef.current.shift();
                         processDownloadQueue();
+                    }
+                    break;
+
+                case 'requestFileList':
+                    // Peer asked for list of available files
+                    const fileList: FileDetails[] = outgoingFiles.map(f => ({
+                        name: f.name,
+                        size: f.size,
+                        type: f.type
+                    }));
+                    if (fileList.length > 0) {
+                        peer.send(JSON.stringify({
+                            type: 'fileDetails',
+                            payload: fileList
+                        }));
                     }
                     break;
 
@@ -270,7 +323,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator }: Tra
                 </div>
             </CardHeader>
             <CardContent>
-                <Tabs defaultValue="send" className="w-full">
+                <Tabs defaultValue={isInitiator ? "send" : "receive"} className="w-full">
                     <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="send">
                             <Upload className="mr-2 h-4 w-4" />
@@ -289,10 +342,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator }: Tra
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center">
                                     <h3 className="font-medium">Files to Send</h3>
-                                    <Button onClick={sendSelected} size="sm">
-                                        <Upload className="mr-2 h-4 w-4" />
-                                        Send All
-                                    </Button>
                                 </div>
 
                                 <div className="space-y-2 max-h-96 overflow-y-auto">

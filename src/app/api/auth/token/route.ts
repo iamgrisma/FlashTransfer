@@ -9,7 +9,7 @@ export const runtime = 'edge';
  */
 export async function GET() {
     try {
-        const { token, timestamp } = generateToken();
+        const { token, timestamp } = await generateToken();
 
         return NextResponse.json({
             token,
