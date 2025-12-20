@@ -44,22 +44,26 @@ App runs at: `http://localhost:9002`
 
 ## Deployment
 
-### Cloudflare Workers
+### Cloudflare Workers (Recommended)
+
+Deploy everything (UI + backend) to Cloudflare Workers:
 
 ```bash
-# Deploy worker
-npx wrangler deploy
+# Install adapter
+npm install --save-dev @cloudflare/next-on-pages
 
-# Update worker URL in code if needed
-# Default: http://127.0.0.1:8787 (local)
+# Build for Workers
+npx @cloudflare/next-on-pages
+
+# Deploy
+npx wrangler pages deploy .vercel/output/static
 ```
 
-### Cloudflare Pages / Vercel / Other
+See [DEPLOY.md](./DEPLOY.md) for detailed instructions.
 
-```bash
-npm run build
-# Deploy build output
-```
+### Other Platforms
+
+Works on Vercel, Netlify, or any Next.js-compatible platform.
 
 ## How It Works
 

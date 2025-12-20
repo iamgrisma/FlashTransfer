@@ -166,11 +166,24 @@ async function submitSessionStats(session: SessionStats): Promise<void> {
         const totalFiles = session.filesSent + session.filesReceived;
         const totalBytes = session.bytesSent + session.bytesReceived;
 
-        if (totalFiles === 0) return; // Nothing to submit
+        if (totalFiles === 0) return;
+
+        // Get auth token (generated server-side, fetched once per page load)
+        const { getAuthToken } = await import('@/lib/client-auth');
+        const auth = await getAuthToken();
+
+        if (!auth) {
+            console.error('Failed to get auth token');
+            return;
+        }
 
         const response = await fetch('/api/analytics/update', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Token': auth.token,
+                'X-Timestamp': auth.timestamp.toString(),
+            },
             body: JSON.stringify({
                 filesTransferred: totalFiles,
                 bytesTransferred: totalBytes,
