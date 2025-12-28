@@ -367,6 +367,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                                                             size="icon"
                                                             variant="ghost"
                                                             onClick={() => removeOutgoingFile(file.name)}
+                                                            aria-label={`Remove ${file.name}`}
                                                         >
                                                             <Trash2 className="h-4 w-4" />
                                                         </Button>
@@ -410,6 +411,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                                             <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg">
                                                 <Checkbox
                                                     checked={isSelected}
+                                                    aria-label={`Select ${file.name} for download`}
                                                     onCheckedChange={(checked) => {
                                                         if (checked) {
                                                             setSelectedIncoming(prev => [...prev, file.name]);
