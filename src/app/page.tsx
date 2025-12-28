@@ -112,6 +112,7 @@ export default function Home() {
                               multiple
                               className="absolute inset-0 opacity-0 cursor-pointer"
                               onChange={(e) => e.target.files && handlePreSelection(e.target.files)}
+                              aria-label="Add more files"
                             />
                             <Button>Add More</Button>
                           </div>
@@ -124,6 +125,7 @@ export default function Home() {
                           multiple
                           className="absolute inset-0 opacity-0 cursor-pointer z-10"
                           onChange={(e) => e.target.files && handlePreSelection(e.target.files)}
+                          aria-label="Select files to send"
                         />
                         <div className="space-y-2">
                           <UploadCloud className="h-10 w-10 mx-auto text-muted-foreground group-hover:text-primary transition-colors" />
