@@ -47,7 +47,12 @@ export function CreateConnection({ connectionCode, isConnecting, onDisconnect }:
                         readOnly
                         className="text-center text-2xl tracking-[0.3em] font-mono"
                     />
-                    <Button onClick={() => handleCopy(connectionCode)} size="icon" variant="outline">
+                    <Button
+                        onClick={() => handleCopy(connectionCode)}
+                        size="icon"
+                        variant="outline"
+                        aria-label="Copy connection code"
+                    >
                         {hasCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     </Button>
                 </div>
