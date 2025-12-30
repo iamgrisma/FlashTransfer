@@ -78,7 +78,7 @@ export function ConnectionDialog({
                             </div>
                             <p className="text-sm text-muted-foreground font-medium animate-pulse">Looking for peer...</p>
                         </div>
-                    ) : mode === 'create' && connectionCode ? (
+                    ) : isShowingCode ? (
                         <div className="flex flex-col items-center space-y-6 py-2">
                             <div className="p-3 bg-white rounded-xl shadow-inner border">
                                 <QRCodeSVG value={`${typeof window !== 'undefined' ? window.location.origin : ''}/s/${connectionCode}`} size={140} />
@@ -93,6 +93,7 @@ export function ConnectionDialog({
                                     </Button>
                                 </div>
                                 <p className="text-xs text-muted-foreground">Share this code to connect</p>
+                                <p className="text-[10px] text-muted-foreground/60">Waiting for peer...</p>
                             </div>
                         </div>
                     ) : (

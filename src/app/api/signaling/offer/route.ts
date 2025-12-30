@@ -25,7 +25,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
-        // Extend expiry by 24h instead of using potential missing column last_activity_at
+        // Extend expiry by 24h (for reconnection attempts)
         const newExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
         const { error } = await supabase
@@ -33,6 +33,7 @@ export async function POST(request: Request) {
             .update({
                 p2p_offer: JSON.stringify(p2p_offer),
                 expires_at: newExpiry
+                // Note: reusable_until is NOT updated here - it's set once on first join
             })
             .eq('id', id);
 
