@@ -9,15 +9,18 @@ import { useBidirectionalConnection } from '@/components/connection/use-connecti
 import { CreateConnection } from '@/components/connection/create-connection';
 import { JoinConnection } from '@/components/connection/join-connection';
 import { ActiveConnection } from '@/components/connection/active-connection';
+import { useEffect } from 'react';
 
 interface BidirectionalConnectionProps {
     onConnectionEstablished: (peer: Peer.Instance, connectionCode: string, isInitiator: boolean) => void;
     onConnectionLost: () => void;
+    targetCode?: string | null; // Code to auto-join
 }
 
 export default function BidirectionalConnection({
     onConnectionEstablished,
-    onConnectionLost
+    onConnectionLost,
+    targetCode
 }: BidirectionalConnectionProps) {
     const {
         mode,
@@ -33,6 +36,13 @@ export default function BidirectionalConnection({
         handleDisconnect,
         handleRotateSession
     } = useBidirectionalConnection({ onConnectionEstablished, onConnectionLost });
+
+    // Auto-join if targetCode is provided
+    useEffect(() => {
+        if (targetCode && !isConnected && !isConnecting && mode === 'none') {
+            joinConnection(targetCode);
+        }
+    }, [targetCode, isConnected, isConnecting, mode, joinConnection]);
 
     return (
         <Card className="w-full max-w-lg">
@@ -93,7 +103,7 @@ export default function BidirectionalConnection({
                     <div className="text-center p-8 space-y-4 animate-in fade-in">
                         <div className="p-4 bg-secondary/50 rounded-lg">
                             <Loader className="mx-auto h-8 w-8 animate-spin text-primary mb-2" />
-                            <p className="text-sm text-muted-foreground">Reconnecting to session {connectionCode}...</p>
+                            <p className="text-sm text-muted-foreground">Reconnecting to session {connectionCode || targetCode}...</p>
                         </div>
                         <Button onClick={handleDisconnect} variant="ghost">Cancel</Button>
                     </div>

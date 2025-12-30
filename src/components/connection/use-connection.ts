@@ -173,8 +173,10 @@ export function useBidirectionalConnection({
         }
     }, [connectionCode, onConnectionEstablished, toast]);
 
-    const joinConnection = useCallback(async () => {
-        if (!inputCode || inputCode.length !== 5) {
+    const joinConnection = useCallback(async (codeOverride?: string) => {
+        const codeToUse = codeOverride || inputCode;
+
+        if (!codeToUse || codeToUse.length !== 5) {
             setError('Please enter a valid 5-character code');
             return;
         }
@@ -184,7 +186,7 @@ export function useBidirectionalConnection({
 
         try {
             const supabase = createClient();
-            const shortCode = reverseObfuscateCode(inputCode);
+            const shortCode = reverseObfuscateCode(codeToUse);
 
             const { data, error: fetchError } = await supabase
                 .from('fileshare')
@@ -224,12 +226,12 @@ export function useBidirectionalConnection({
                 setIsConnected(true);
                 setIsConnecting(false);
                 setRemotePeerStatus('online');
-                setConnectionCode(inputCode);
+                setConnectionCode(codeToUse);
                 setMode('join');
-                saveSession('join', inputCode, data.id);
+                saveSession('join', codeToUse, data.id);
                 toast({ title: 'Connected!', description: 'Peer-to-peer connection established' });
                 connectionSuccessfulRef.current = true;
-                onConnectionEstablished(newPeer, inputCode, false);
+                onConnectionEstablished(newPeer, codeToUse, false);
             });
 
             newPeer.on('error', (err) => {
