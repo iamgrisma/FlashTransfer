@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { generateShareCode, obfuscateCode, reverseObfuscateCode } from '@/lib/code';
 import { useToast } from '@/hooks/use-toast';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { getDeviceId } from '@/lib/device';
 
 export type ConnectionMode = 'none' | 'create' | 'join';
 
@@ -116,14 +117,19 @@ export function useBidirectionalConnection({
 
                 } else {
                     // NEW
+                    const deviceId = getDeviceId();
                     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                    const reusableUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
                     const { data, error: dbError } = await supabase
                         .from('fileshare')
                         .insert([{
                             short_code: shortCode,
                             p2p_offer: JSON.stringify(offer),
                             transfer_mode: 'bidirectional',
-                            expires_at: expiresAt
+                            expires_at: expiresAt,
+                            initiator_device_id: deviceId,
+                            reusable_until: reusableUntil
                         }])
                         .select('id')
                         .single();
@@ -187,16 +193,37 @@ export function useBidirectionalConnection({
         try {
             const supabase = createClient();
             const shortCode = reverseObfuscateCode(codeToUse);
+            const deviceId = getDeviceId();
 
             const { data, error: fetchError } = await supabase
                 .from('fileshare')
-                .select('id, p2p_offer')
+                .select('id, p2p_offer, joiner_device_id, initiator_device_id, reusable_until')
                 .eq('short_code', shortCode)
                 .eq('transfer_mode', 'bidirectional')
                 .single();
 
             if (fetchError || !data) {
                 throw new Error('Connection code not found or expired');
+            }
+
+            // Check expiry
+            if (data.reusable_until && new Date(data.reusable_until) < new Date()) {
+                throw new Error('This connection has expired (7 days limit)');
+            }
+
+            // Validate device ID
+            const validateResponse = await fetch('/api/signaling/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shareId: data.id, deviceId })
+            });
+
+            if (!validateResponse.ok) {
+                const errorData = await validateResponse.json();
+                if (validateResponse.status === 403) {
+                    throw new Error('This code is locked to different browsers. Connection denied.');
+                }
+                throw new Error(errorData.error || 'Failed to validate connection');
             }
 
             shareIdRef.current = data.id;
