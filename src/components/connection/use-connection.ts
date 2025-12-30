@@ -193,37 +193,16 @@ export function useBidirectionalConnection({
         try {
             const supabase = createClient();
             const shortCode = reverseObfuscateCode(codeToUse);
-            const deviceId = getDeviceId();
 
             const { data, error: fetchError } = await supabase
                 .from('fileshare')
-                .select('id, p2p_offer, joiner_device_id, initiator_device_id, reusable_until')
+                .select('id, p2p_offer')
                 .eq('short_code', shortCode)
                 .eq('transfer_mode', 'bidirectional')
                 .single();
 
             if (fetchError || !data) {
                 throw new Error('Connection code not found or expired');
-            }
-
-            // Check expiry
-            if (data.reusable_until && new Date(data.reusable_until) < new Date()) {
-                throw new Error('This connection has expired (7 days limit)');
-            }
-
-            // Validate device ID
-            const validateResponse = await fetch('/api/signaling/join', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shareId: data.id, deviceId })
-            });
-
-            if (!validateResponse.ok) {
-                const errorData = await validateResponse.json();
-                if (validateResponse.status === 403) {
-                    throw new Error('This code is locked to different browsers. Connection denied.');
-                }
-                throw new Error(errorData.error || 'Failed to validate connection');
             }
 
             shareIdRef.current = data.id;
