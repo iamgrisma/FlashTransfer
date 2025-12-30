@@ -45,22 +45,22 @@ export default function BidirectionalConnection({
     }, [targetCode, isConnected, isConnecting, mode, joinConnection]);
 
     return (
-        <Card className="w-full max-w-lg">
-            <CardHeader>
-                <div className="flex justify-between items-center">
-                    <div>
-                        <CardTitle className="font-headline">Bidirectional P2P Connection</CardTitle>
-                        <CardDescription>
+        <Card className="w-full max-w-lg mx-auto">
+            <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                        <CardTitle className="font-headline text-base sm:text-lg md:text-xl break-words">Bidirectional P2P Connection</CardTitle>
+                        <CardDescription className="text-xs sm:text-sm mt-1">
                             {isConnected ? 'Connected - You can now send and receive files' : 'Create or join a connection'}
                         </CardDescription>
                     </div>
-                    <Badge variant={isConnected ? 'default' : 'secondary'} className="flex items-center gap-2">
-                        {isConnected ? <Wifi className="text-green-400" /> : <WifiOff className="text-gray-400" />}
+                    <Badge variant={isConnected ? 'default' : 'secondary'} className="flex items-center gap-1.5 text-xs shrink-0">
+                        {isConnected ? <Wifi className="w-3 h-3 text-green-400" /> : <WifiOff className="w-3 h-3 text-gray-400" />}
                         {isConnected ? 'Connected' : 'Disconnected'}
                     </Badge>
                 </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-4 sm:p-6">
                 {!isConnected && mode === 'none' && (
                     <div className="space-y-3">
                         <Button
