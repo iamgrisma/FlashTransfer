@@ -5,42 +5,46 @@ import Peer from 'simple-peer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { File as FileIcon, Download, Check, Send, Paperclip, Loader, X, AlertCircle } from 'lucide-react';
+import { File as FileIcon, Download, Check, Send, Paperclip, Loader, AlertCircle, X, UploadCloud, Link } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { trackFileTransfer, formatBytes } from '@/lib/analytics';
 import type { FileDetails } from '@/lib/types';
 import { ChatMessage, useChatHistory } from '@/hooks/use-chat-history';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card } from '@/components/ui/card';
 
 interface ChatInterfaceProps {
     peer: Peer.Instance | null;
     isConnected: boolean;
-    connectionCode: string; // If active
-    onConnectRequest: () => void; // Trigger standard connection flow
-    historyHook: ReturnType<typeof useChatHistory>; // Pass from parent for consolidated state
+    connectionCode: string;
+    onConnectRequest: () => void;
+    onJoinCode: (code: string) => void; // New prop for direct join from top bar
+    historyHook: ReturnType<typeof useChatHistory>;
 }
 
 export default function ChatInterface({
     peer,
     isConnected,
     onConnectRequest,
+    onJoinCode,
     historyHook
 }: ChatInterfaceProps) {
     const { messages, addMessage, updateMessage } = historyHook;
     const [inputValue, setInputValue] = useState("");
+    const [joinInput, setJoinInput] = useState("");
     const [isDragOver, setIsDragOver] = useState(false);
 
-    // Internal Queue for when sending fails or is pending connection
-    // In practice, we add to "messages" with status 'sending' (or 'queued'?)
-    // If not connected, we prompt.
+    // Staging State
+    const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
-    // Active transfer tracking
+    const pendingFilesRef = useRef<Map<string, File>>(new Map());
     const currentTransferRef = useRef<{
         fileName: string;
         fileSize: number;
         receivedSize: number;
         chunks: any[];
     } | null>(null);
+    const currentMsgIdRef = useRef<string | null>(null);
 
     const { toast } = useToast();
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,250 +56,102 @@ export default function ChatInterface({
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages, stagedFiles]);
 
-    // 1. Send Text
-    const sendMessage = useCallback(() => {
-        if (!inputValue.trim()) return;
-        const text = inputValue.trim();
-        setInputValue("");
-
-        const msgId = Date.now().toString();
-
-        // Add to UI immediately
-        addMessage({
-            id: msgId,
-            sender: 'me',
-            type: 'text',
-            content: text,
-            timestamp: Date.now()
-        });
-
-        // Try send if connected
-        if (isConnected && peer && !peer.destroyed) {
-            try {
-                peer.send(JSON.stringify({ type: 'chat-text', payload: text }));
-            } catch (err) {
-                console.error('Failed to send text:', err);
-                toast({ title: 'Send Error', description: 'Message saved but not sent.', variant: 'warning' });
-            }
-        } else {
-            // It's just local history now, maybe we prompt to connect?
-            // User requested flow: "If not connected -> Prompt connection" is mainly for FILES?
-            // For text, let's just leave it in history.
-        }
-    }, [inputValue, peer, isConnected, addMessage, toast]);
-
-    // 2. Send File Logic
-    const sendFileRaw = useCallback((file: File, msgId: string) => {
-        if (!peer || peer.destroyed || !isConnected) {
-            // If called but disconnected, we leave it as "sending" -> "error" or just update to "queued" if we had that state
-            // For now, update to 'error' to indicate retry needed
-            updateMessage(msgId, { fileStatus: 'error' });
-            return;
-        }
-
+    // --- Core Send Logic ---
+    const processSendFile = useCallback((file: File, msgId: string) => {
+        if (!peer || peer.destroyed) return;
         const chunkSize = 256 * 1024;
         let offset = 0;
-
         try {
-            // Signal start
-            peer.send(JSON.stringify({
-                type: 'transferStart',
-                payload: { fileName: file.name, fileSize: file.size, fileType: file.type, msgId }
-            }));
-
+            peer.send(JSON.stringify({ type: 'transferStart', payload: { fileName: file.name, fileSize: file.size, fileType: file.type, msgId } }));
             const reader = new FileReader();
-
             reader.onload = (e) => {
                 if (peer.destroyed || !e.target?.result) return;
-
                 try {
                     peer.send(e.target.result as ArrayBuffer);
                     offset += (e.target.result as ArrayBuffer).byteLength;
-
                     const progress = Math.min((offset / file.size) * 100, 100);
-
                     updateMessage(msgId, { progress, fileStatus: progress === 100 ? 'sent' : 'sending' });
-
-                    if (offset < file.size) {
-                        readNextChunk();
-                    } else {
-                        // Complete
-                        peer.send(JSON.stringify({
-                            type: 'transferComplete',
-                            payload: { fileName: file.name, msgId }
-                        }));
+                    if (offset < file.size) { readNextChunk(); }
+                    else {
+                        peer.send(JSON.stringify({ type: 'transferComplete', payload: { fileName: file.name, msgId } }));
                         trackFileTransfer(file.name, file.size, file.type, 'sent');
+                        pendingFilesRef.current.delete(msgId);
                     }
-                } catch (err) {
-                    console.error('Error sending chunk:', err);
-                    updateMessage(msgId, { fileStatus: 'error' });
-                }
+                } catch (err) { updateMessage(msgId, { fileStatus: 'error' }); }
             };
-
-            const readNextChunk = () => {
-                const slice = file.slice(offset, offset + chunkSize);
-                reader.readAsArrayBuffer(slice);
-            };
-
+            const readNextChunk = () => { const slice = file.slice(offset, offset + chunkSize); reader.readAsArrayBuffer(slice); };
             readNextChunk();
+        } catch (err) { updateMessage(msgId, { fileStatus: 'error' }); }
+    }, [peer, updateMessage]);
 
-        } catch (err) {
-            console.error("Send file error", err);
-            updateMessage(msgId, { fileStatus: 'error' });
+    // Auto-Flush
+    useEffect(() => {
+        if (isConnected && peer && !peer.destroyed && pendingFilesRef.current.size > 0) {
+            pendingFilesRef.current.forEach((file, msgId) => {
+                updateMessage(msgId, { fileStatus: 'sending' });
+                processSendFile(file, msgId);
+            });
         }
-    }, [peer, isConnected, updateMessage]);
+    }, [isConnected, peer, processSendFile, updateMessage]);
 
-    // 3. Handle File Trigger (User Drop or Select)
-    const handleFiles = (files: File[]) => {
-        // If not connected, we TRIGGER the connection flow first?
-        // OR we add to queue and trigger flow?
-        // Plan: Add to list as "Ready to send" (let's use 'sending' with 0 progress but if !connected, open dialog)
+    // --- Handlers ---
+    const handleSendStaged = () => {
+        if (stagedFiles.length === 0) return;
 
-        let shouldConnect = !isConnected;
-
-        files.forEach(file => {
+        let needsAuth = false;
+        stagedFiles.forEach(file => {
             const msgId = Date.now().toString() + Math.random().toString().slice(2);
-
             addMessage({
                 id: msgId,
                 sender: 'me',
                 type: 'file',
                 content: { name: file.name, size: file.size, type: file.type },
                 timestamp: Date.now(),
-                fileStatus: isConnected ? 'sending' : 'error', // 'error' is a bit harsh, ideally 'queued' but reusing types
+                fileStatus: 'sending',
                 progress: 0,
                 fileData: { name: file.name, size: file.size, mimeType: file.type }
             });
-
-            if (isConnected) {
-                sendFileRaw(file, msgId);
-            }
+            pendingFilesRef.current.set(msgId, file);
+            if (isConnected) processSendFile(file, msgId);
+            else needsAuth = true;
         });
 
-        if (shouldConnect) {
-            onConnectRequest();
+        setStagedFiles([]);
+        if (needsAuth) onConnectRequest();
+    };
+
+    const handleSendText = () => {
+        if (!inputValue.trim()) return;
+        const text = inputValue.trim();
+        setInputValue("");
+        addMessage({ id: Date.now().toString(), sender: 'me', type: 'text', content: text, timestamp: Date.now() });
+        if (isConnected && peer && !peer.destroyed) {
+            try { peer.send(JSON.stringify({ type: 'chat-text', payload: text })); } catch (e) { }
         }
     };
 
-    // Retry sending a file (e.g. after connection established/re-established)
-    // We need the original File object... which we don't store in localStorage or Message state fully (just metadata)
-    // So if page reloads, we cant retry.
-    // BUT if the session is active in memory (files variable?), we could. 
-    // Simplified: For this version, "Retry" only works if user re-selects file OR if we keep file refs in memory while page alive.
-    // Let's implement basic "Click to upload again" if error.
+    const handleDownload = (msg: ChatMessage) => {
+        if (msg.fileData?.blobUrl) {
+            const a = document.createElement('a');
+            a.href = msg.fileData.blobUrl;
+            a.download = (msg.content as FileDetails).name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            updateMessage(msg.id, { fileStatus: 'downloaded' });
+        } else {
+            toast({
+                title: 'File Expired',
+                description: 'We do not store files on servers. Please ask the sender to come online and resend it.',
+                variant: 'destructive'
+            });
+        }
+    };
 
-    // Handling Peer Data
+    // Peer Data & Render Helpers... (Omitting full copy if unchanged, but providing full file to be safe)
     const handlePeerData = useCallback((data: any) => {
-        let signal: any = null;
-
-        try {
-            const textData = (data instanceof ArrayBuffer || data instanceof Uint8Array)
-                ? new TextDecoder().decode(data)
-                : data.toString();
-
-            if (typeof textData === 'string' && textData.trim().startsWith('{')) {
-                const parsed = JSON.parse(textData);
-                if (parsed.type) signal = parsed;
-            }
-        } catch (e) { }
-
-        if (signal) {
-            const { type, payload } = signal;
-
-            switch (type) {
-                case 'chat-text':
-                    addMessage({
-                        id: Date.now().toString(),
-                        sender: 'peer',
-                        type: 'text',
-                        content: payload,
-                        timestamp: Date.now()
-                    });
-                    break;
-
-                case 'transferStart':
-                    currentTransferRef.current = {
-                        fileName: payload.fileName,
-                        fileSize: payload.fileSize,
-                        receivedSize: 0,
-                        chunks: []
-                    };
-
-                    const newMsgId = payload.msgId || Date.now().toString();
-
-                    addMessage({
-                        id: newMsgId,
-                        sender: 'peer',
-                        type: 'file',
-                        content: { name: payload.fileName, size: payload.fileSize, type: payload.fileType },
-                        timestamp: Date.now(),
-                        fileStatus: 'receiving',
-                        progress: 0,
-                        fileData: { name: payload.fileName, size: payload.fileSize, mimeType: payload.fileType }
-                    });
-                    break;
-
-                case 'transferComplete':
-                    if (currentTransferRef.current && currentTransferRef.current.fileName === payload.fileName) {
-                        try {
-                            const fileType = (currentTransferRef.current as any).fileType || 'application/octet-stream';
-                            const blob = new Blob(currentTransferRef.current.chunks, { type: fileType });
-                            const url = URL.createObjectURL(blob);
-
-                            // We need to find the message to update...
-                            // Since we don't have ID, we search by filename + 'receiving' status in REVERSE (most recent)
-                            // Ideally payload has msgId
-
-                            // Helper to find and update
-                            // Since we use addMessage/updateMessage which use functional updates on the hook...
-                            // We need internal access or use the updateMessage exposed.
-
-                            // HACK: We assume last message with that filename is the one? 
-                            // Better: Payload has msgId.
-
-                            if (payload.msgId) {
-                                updateMessage(payload.msgId, {
-                                    fileStatus: 'received',
-                                    progress: 100,
-                                    fileData: { name: payload.fileName, size: 0, mimeType: fileType, blobUrl: url }
-                                });
-                            }
-
-                            currentTransferRef.current = null;
-                        } catch (e) { console.error("Blob creation failed", e); }
-                    }
-                    break;
-            }
-            return;
-        }
-
-        // Binary Data
-        if (currentTransferRef.current) {
-            const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
-            currentTransferRef.current.chunks.push(chunk);
-            currentTransferRef.current.receivedSize += chunk.byteLength;
-
-            const { fileName, fileSize } = currentTransferRef.current;
-            const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
-
-            // We need to update UI progress. 
-            // Again, missing msgId in binary chunks context...
-            // We'll rely on React state finding the 'receiving' message.
-            // Optimized: Don't update state on EVERY chunk for performance?
-            // For now, let's throttle or just update. To update correctly we need msgId.
-            // We don't have it here. We can store "currentMsgId" in ref alongside "currentTransferRef".
-            // TODO: Update transferStart to store msgId in Ref.
-        }
-
-    }, [peer, addMessage, updateMessage]);
-
-    // Fix: Store MsgId in Ref for binary tracking
-    const currentMsgIdRef = useRef<string | null>(null);
-
-    // Override handlePeerData to use Ref for ID
-    const handlePeerDataRefined = useCallback((data: any) => {
         let signal: any = null;
         try {
             const textData = (data instanceof ArrayBuffer || data instanceof Uint8Array)
@@ -310,24 +166,9 @@ export default function ChatInterface({
         if (signal) {
             const { type, payload } = signal;
             if (type === 'transferStart') {
-                currentTransferRef.current = {
-                    fileName: payload.fileName,
-                    fileSize: payload.fileSize,
-                    receivedSize: 0,
-                    chunks: []
-                };
+                currentTransferRef.current = { fileName: payload.fileName, fileSize: payload.fileSize, receivedSize: 0, chunks: [] };
                 currentMsgIdRef.current = payload.msgId || Date.now().toString();
-
-                addMessage({
-                    id: currentMsgIdRef.current!,
-                    sender: 'peer',
-                    type: 'file',
-                    content: { name: payload.fileName, size: payload.fileSize, type: payload.fileType },
-                    timestamp: Date.now(),
-                    fileStatus: 'receiving',
-                    progress: 0,
-                    fileData: { name: payload.fileName, size: payload.fileSize, mimeType: payload.fileType }
-                });
+                addMessage({ id: currentMsgIdRef.current!, sender: 'peer', type: 'file', content: { name: payload.fileName, size: payload.fileSize, type: payload.fileType }, timestamp: Date.now(), fileStatus: 'receiving', progress: 0, fileData: { name: payload.fileName, size: payload.fileSize, mimeType: payload.fileType } });
                 return;
             }
             if (type === 'transferComplete') {
@@ -336,32 +177,18 @@ export default function ChatInterface({
                         const fileType = (currentTransferRef.current as any).fileType || 'application/octet-stream';
                         const blob = new Blob(currentTransferRef.current.chunks, { type: fileType });
                         const url = URL.createObjectURL(blob);
-
-                        updateMessage(currentMsgIdRef.current, {
-                            fileStatus: 'received',
-                            progress: 100,
-                            fileData: { name: payload.fileName, size: 0, mimeType: fileType, blobUrl: url }
-                        });
+                        updateMessage(currentMsgIdRef.current, { fileStatus: 'received', progress: 100, fileData: { name: payload.fileName, size: 0, mimeType: fileType, blobUrl: url } });
                         currentTransferRef.current = null;
                         currentMsgIdRef.current = null;
                     } catch (e) { }
                 }
                 return;
             }
-            // Normal signals
             if (type === 'chat-text') {
-                addMessage({
-                    id: Date.now().toString(),
-                    sender: 'peer',
-                    type: 'text',
-                    content: payload,
-                    timestamp: Date.now()
-                });
+                addMessage({ id: Date.now().toString(), sender: 'peer', type: 'text', content: payload, timestamp: Date.now() });
             }
             return;
         }
-
-        // Binary
         if (currentTransferRef.current && currentMsgIdRef.current) {
             const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
             currentTransferRef.current.chunks.push(chunk);
@@ -374,115 +201,108 @@ export default function ChatInterface({
 
     useEffect(() => {
         if (peer && !peer.destroyed) {
-            peer.on('data', handlePeerDataRefined);
-            return () => { peer.off('data', handlePeerDataRefined); };
+            peer.on('data', handlePeerData);
+            return () => { peer.off('data', handlePeerData); };
         }
-    }, [peer, handlePeerDataRefined]);
+    }, [peer, handlePeerData]);
 
-    // Render Helpers
-    const formatTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const handleDownload = (msg: ChatMessage) => {
-        if (msg.fileData?.blobUrl) {
-            const a = document.createElement('a');
-            a.href = msg.fileData.blobUrl;
-            a.download = (msg.content as FileDetails).name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            updateMessage(msg.id, { fileStatus: 'downloaded' });
-        } else {
-            toast({ title: 'File not available', description: 'This file is not in memory. Please ask peer to resend.', variant: 'destructive' });
-        }
-    };
 
     return (
-        <div className="flex flex-col h-full bg-background"
+        <div className="flex flex-col h-full bg-background relative"
             onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-                if (e.dataTransfer.files?.length) handleFiles(Array.from(e.dataTransfer.files));
-            }}
+            onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files?.length) setStagedFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]); }}
         >
             {isDragOver && (
-                <div className="absolute inset-0 z-50 bg-primary/20 backdrop-blur-sm flex items-center justify-center border-2 border-dashed border-primary m-4 rounded-xl">
-                    <p className="text-2xl font-bold text-primary">Drop files to send</p>
+                <div className="absolute inset-0 z-50 bg-background/90 flex items-center justify-center border-4 border-dashed border-primary m-4 rounded-3xl">
+                    <p className="text-xl font-bold text-primary animate-bounce">Drop Files Here</p>
                 </div>
             )}
 
-            {/* Messages Area */}
-            <ScrollArea className="flex-1 p-4">
-                <div className="space-y-4 max-w-3xl mx-auto pb-4">
-                    {messages.length === 0 && (
-                        <div className="text-center py-20 text-muted-foreground opacity-50">
-                            <Send className="w-12 h-12 mx-auto mb-4" />
-                            <p>Start chatting or drop files anytime.</p>
-                            <p className="text-xs">History is saved automatically.</p>
-                        </div>
-                    )}
+            {/* TOP PANEL - Strict Request */}
+            <div className="flex-none p-4 border-b bg-muted/20 space-y-4">
 
+                {/* 1. Enter Receive Code Area (Only if Disconnected) */}
+                {!isConnected && (
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Input
+                                placeholder="Enter Receive Code"
+                                className="pl-9 font-mono uppercase"
+                                maxLength={5}
+                                value={joinInput}
+                                onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+                            />
+                            <Link className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <Button
+                            onClick={() => onJoinCode(joinInput)}
+                            disabled={joinInput.length !== 5}
+                        >
+                            Connect
+                        </Button>
+                    </div>
+                )}
+
+                {/* 2. Upload File Area */}
+                {/* Logic: If files staged, show Send Button. Else show Upload Box. */}
+                {stagedFiles.length > 0 ? (
+                    <div className="bg-background border rounded-xl p-3 shadow-sm animate-in fade-in">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-semibold text-sm">Selected Files ({stagedFiles.length})</h3>
+                            <Button onClick={handleSendStaged} className="gap-2">
+                                <Send className="w-4 h-4" />
+                                {isConnected ? 'Send Now' : 'Send'}
+                            </Button>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto">
+                            {stagedFiles.map((f, i) => (
+                                <div key={i} className="flex flex-col items-center bg-muted p-2 rounded w-24 shrink-0 relative">
+                                    <FileIcon className="w-6 h-6 mb-1 text-primary" />
+                                    <span className="text-[10px] truncate w-full text-center">{f.name}</span>
+                                    <button className="absolute -top-1 -right-1 bg-background rounded-full border" onClick={() => setStagedFiles(s => s.filter((_, idx) => idx !== i))}><X className="w-3 h-3" /></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="border-2 border-dashed border-muted-foreground/20 rounded-xl p-6 flex flex-col items-center justify-center text-muted-foreground hover:bg-muted/30 hover:border-primary/50 cursor-pointer transition-colors"
+                    >
+                        <UploadCloud className="w-8 h-8 mb-2 opacity-50" />
+                        <p className="text-sm font-medium">Click to Upload Files</p>
+                        <p className="text-xs opacity-70">or drag and drop</p>
+                    </div>
+                )}
+
+                <input
+                    type="file" multiple className="hidden" ref={fileInputRef}
+                    onChange={(e) => { if (e.target.files) setStagedFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }}
+                />
+            </div>
+
+            {/* Middle: Chat History */}
+            <ScrollArea className="flex-1 px-3 py-4">
+                <div className="max-w-3xl mx-auto space-y-4">
                     {messages.map((msg) => (
                         <div key={msg.id} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 py-3 shadow-sm ${msg.sender === 'me'
-                                    ? 'bg-primary text-primary-foreground rounded-br-none'
-                                    : 'bg-secondary text-secondary-foreground rounded-bl-none'
+                            <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${msg.sender === 'me' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                                 }`}>
-                                {msg.type === 'text' ? (
-                                    <p className="whitespace-pre-wrap break-words">{msg.content as string}</p>
-                                ) : (
-                                    <div className="space-y-3 min-w-[200px]">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-background/20 rounded-lg">
-                                                <FileIcon className="w-6 h-6" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-medium truncate text-sm">{(msg.content as FileDetails).name}</p>
-                                                <p className="text-xs opacity-70">{formatBytes((msg.content as FileDetails).size)}</p>
-                                            </div>
+                                {msg.type === 'text' && <p>{msg.content as string}</p>}
+                                {msg.type === 'file' && (
+                                    <div className="flex items-center gap-3 min-w-[200px]">
+                                        <FileIcon className="w-5 h-5" />
+                                        <div className="flex-1 overflow-hidden">
+                                            <p className="truncate text-sm font-medium">{(msg.content as FileDetails).name}</p>
+                                            <p className="text-xs opacity-80">{formatBytes((msg.content as FileDetails).size)}</p>
+                                            {(msg.fileStatus === 'sending' || msg.fileStatus === 'receiving') && <Progress value={msg.progress} className="h-1 mt-1 bg-background/20" />}
+                                            {msg.sender === 'peer' && msg.fileStatus === 'received' && (
+                                                <Button size="sm" variant="secondary" className="h-6 text-[10px] mt-2 w-full" onClick={() => handleDownload(msg)}>Download</Button>
+                                            )}
                                         </div>
-
-                                        {(msg.fileStatus === 'sending' || msg.fileStatus === 'receiving') && (
-                                            <div className="space-y-1">
-                                                <Progress value={msg.progress} className="h-1.5 bg-background/20" />
-                                            </div>
-                                        )}
-
-                                        {msg.fileStatus === 'error' && (
-                                            <div className="flex items-center gap-2 text-xs text-destructive-foreground/80 bg-destructive/20 p-1 rounded">
-                                                <AlertCircle className="w-3 h-3" />
-                                                <span>Send Failed</span>
-                                                <Button size="sm" variant="ghost" className="h-5 px-2 text-[10px]" onClick={onConnectRequest}>Retry</Button>
-                                            </div>
-                                        )}
-
-                                        {msg.sender === 'peer' && msg.fileStatus === 'received' && (
-                                            <Button size="sm" variant="secondary" className="w-full h-8 bg-background/20 hover:bg-background/30" onClick={() => handleDownload(msg)}>
-                                                <Download className="w-3 h-3 mr-2" /> Download
-                                            </Button>
-                                        )}
-                                        {msg.sender === 'peer' && msg.fileStatus === 'downloaded' && (
-                                            <div className="flex items-center gap-2 text-xs opacity-70">
-                                                <Check className="w-3 h-3" /> Saved to device
-                                            </div>
-                                        )}
-                                        {/* If history item without blob */}
-                                        {msg.sender === 'peer' && !msg.fileData?.blobUrl && (msg.fileStatus === 'received' || msg.fileStatus === 'downloaded') && (
-                                            <div className="text-[10px] opacity-60 italic">
-                                                File available in chat session
-                                            </div>
-                                        )}
                                     </div>
                                 )}
-                                <div className="flex justify-end items-center gap-1 mt-1 opacity-50">
-                                    <span className="text-[10px]">{formatTime(msg.timestamp)}</span>
-                                    {msg.sender === 'me' && (
-                                        msg.type === 'file' ? (
-                                            msg.fileStatus === 'sent' ? <Check className="w-3 h-3" /> : (msg.fileStatus === 'sending' ? <Loader className="w-3 h-3 animate-spin" /> : null)
-                                        ) : <Check className="w-3 h-3" />
-                                    )}
-                                </div>
                             </div>
                         </div>
                     ))}
@@ -490,30 +310,16 @@ export default function ChatInterface({
                 </div>
             </ScrollArea>
 
-            {/* Input Area */}
-            <div className="p-4 border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="max-w-3xl mx-auto flex items-center gap-2">
-                    <input
-                        type="file"
-                        multiple
-                        className="hidden"
-                        ref={fileInputRef}
-                        onChange={(e) => {
-                            if (e.target.files) handleFiles(Array.from(e.target.files));
-                            e.target.value = '';
-                        }}
-                    />
-                    <Button size="icon" variant="ghost" className="rounded-full shrink-0" onClick={() => fileInputRef.current?.click()}>
-                        <Paperclip className="w-5 h-5" />
-                    </Button>
+            {/* Bottom: Text Input Only */}
+            <div className="p-3 border-t bg-background">
+                <div className="flex gap-2 max-w-3xl mx-auto">
                     <Input
                         placeholder="Type a message..."
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                        className="flex-1 rounded-full bg-secondary border-none focus-visible:ring-1"
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
                     />
-                    <Button size="icon" className="rounded-full shrink-0" onClick={sendMessage}>
+                    <Button onClick={handleSendText} disabled={!inputValue.trim()}>
                         <Send className="w-4 h-4" />
                     </Button>
                 </div>

@@ -9,6 +9,11 @@ export const runtime = 'edge';
 
 export async function POST(request: Request) {
     try {
+        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            console.error('Missing SUPABASE_SERVICE_ROLE_KEY');
+            return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+        }
+
         const supabase = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -20,11 +25,14 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
+        // Extend expiry by 24h instead of using potential missing column last_activity_at
+        const newExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
         const { error } = await supabase
             .from('fileshare')
             .update({
                 p2p_offer: JSON.stringify(p2p_offer),
-                last_activity_at: new Date().toISOString()
+                expires_at: newExpiry
             })
             .eq('id', id);
 
@@ -34,7 +42,8 @@ export async function POST(request: Request) {
         }
 
         return NextResponse.json({ success: true });
-    } catch (error) {
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('Signaling Handler Error:', error);
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
     }
 }
