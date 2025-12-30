@@ -136,24 +136,36 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
 
     // Handle incoming data from peer
     const handlePeerData = useCallback((data: any) => {
-        // Handle binary data (file chunks)
-        if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
-            if (currentTransferRef.current) {
-                const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
-                currentTransferRef.current.chunks.push(chunk);
-                currentTransferRef.current.receivedSize += chunk.byteLength;
+        let signal: any = null;
 
-                const { fileName, fileSize } = currentTransferRef.current;
-                const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
-                setReceiveProgress(prev => ({ ...prev, [fileName]: progress }));
+        // 1. First attempt to parse as a JSON signal (whether string or binary)
+        try {
+            // If data is binary, decode it first
+            const textData = (data instanceof ArrayBuffer || data instanceof Uint8Array)
+                ? new TextDecoder().decode(data)
+                : data.toString();
+
+            // Optimization: only attempt JSON parse if it looks like a JSON object
+            if (typeof textData === 'string' && textData.trim().startsWith('{')) {
+                const parsed = JSON.parse(textData);
+                // Validate it's one of our expected control messages
+                if (parsed && parsed.type && [
+                    'fileDetails',
+                    'transferStart',
+                    'transferComplete',
+                    'requestFileList',
+                    'requestFile'
+                ].includes(parsed.type)) {
+                    signal = parsed;
+                }
             }
-            return;
+        } catch (err) {
+            // Not a valid JSON signal, proceed to binary handling
         }
 
-        // Handle JSON signals
-        try {
-            const message = JSON.parse(data.toString());
-            const { type, payload } = message;
+        // 2. If it's a valid signal, handle it (and do NOT treat as file chunk)
+        if (signal) {
+            const { type, payload } = signal;
 
             switch (type) {
                 case 'fileDetails':
@@ -162,7 +174,12 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                         ...f,
                         scanStatus: 'unscanned' as const
                     }));
-                    setIncomingFiles(prev => [...prev, ...newFiles]);
+                    setIncomingFiles(prev => {
+                        // Avoid duplicates
+                        const existingNames = new Set(prev.map(p => p.name));
+                        const uniqueNew = newFiles.filter(f => !existingNames.has(f.name));
+                        return [...prev, ...uniqueNew];
+                    });
                     toast({ title: 'Files Available', description: `Peer is sharing ${newFiles.length} file(s)` });
                     break;
 
@@ -211,8 +228,36 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                     }
                     break;
             }
-        } catch (err) {
-            // Not JSON, ignore
+            return; // We handled it as a signal
+        }
+
+        if (currentTransferRef.current) {
+            // Ensure we have a Uint8Array
+            let chunk: Uint8Array | null = null;
+            if (data instanceof Uint8Array) {
+                chunk = data;
+            } else if (data instanceof ArrayBuffer) {
+                chunk = new Uint8Array(data);
+            } else {
+                // Fallback for strings that aren't signals but supposed to be file data? 
+                // This shouldn't happen with our FileReader, but best to be safe
+                try {
+                    // For string data that isn't JSON, we might treat as binary?
+                    // But typically text file content comes as ArrayBuffer if we read it as such.
+                    // If simple-peer gave us a string, and it wasn't JSON...
+                    // Let's assume binary-as-string? No, simple-peer shouldn't do that if we sent ArrayBuffer.
+                    return;
+                } catch (e) { return; }
+            }
+
+            if (chunk) {
+                currentTransferRef.current.chunks.push(chunk);
+                currentTransferRef.current.receivedSize += chunk.byteLength;
+
+                const { fileName, fileSize } = currentTransferRef.current;
+                const progress = Math.min((currentTransferRef.current.receivedSize / fileSize) * 100, 100);
+                setReceiveProgress(prev => ({ ...prev, [fileName]: progress }));
+            }
         }
     }, [incomingFiles, outgoingFiles, sendFile, toast]);
 
