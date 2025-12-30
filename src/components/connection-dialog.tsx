@@ -50,11 +50,9 @@ export function ConnectionDialog({
         }
     };
 
-    // simplified view logic
-    const showConnecting = isConnecting || (mode === 'join' && !connectionCode);
-    // Wait, mode='join' usually implies we are connected? No, in use-connection logic:
-    // setMode('join') happens ON connect.
-    // So if isConnecting is true, we show spinner.
+    // Determine what to show
+    const isShowingCode = mode === 'create' && connectionCode;
+    const showConnecting = isConnecting && !isShowingCode;
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -62,10 +60,10 @@ export function ConnectionDialog({
                 {/* Header */}
                 <div className="p-4 bg-muted/20 border-b">
                     <DialogTitle className="text-lg font-bold">
-                        {showConnecting ? 'Connecting...' : (mode === 'create' ? 'Share Code' : 'Connect')}
+                        {showConnecting ? 'Connecting...' : (isShowingCode ? 'Share Code' : 'Connect')}
                     </DialogTitle>
                     <DialogDescription className="text-xs mt-1">
-                        {showConnecting ? 'Establishing secure P2P link' : 'Enter code or scan to join'}
+                        {showConnecting ? 'Establishing secure P2P link' : (isShowingCode ? 'Share with peer' : 'Enter code or create new')}
                     </DialogDescription>
                 </div>
 
