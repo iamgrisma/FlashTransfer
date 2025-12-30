@@ -48,7 +48,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="flex flex-col h-full">
       {/* Header */}
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
@@ -69,7 +69,7 @@ export default function Home() {
         {!isConnected ? (
           <>
             {/* Hero Section */}
-            <section className="container mx-auto px-4 py-16 text-center">
+            <section className="container mx-auto px-4 py-24 text-center flex-1 flex flex-col justify-center">
               <div className="max-w-3xl mx-auto space-y-6">
                 <div className="inline-block p-3 bg-primary/10 rounded-full mb-4">
                   <ArrowLeftRight className="h-12 w-12 text-primary" />

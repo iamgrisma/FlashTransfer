@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { reverseObfuscateCode } from '@/lib/code';
-import { verifyToken } from '@/lib/auth';
-
 export const runtime = 'edge';
 
 // Rate limiting
@@ -27,30 +25,11 @@ function checkRateLimit(ip: string, maxRequests: number = 30, windowMs: number =
 
 /**
  * POST /api/share
- * Requires: X-Auth-Token and X-Timestamp headers
+ * Public endpoint to retrieve connection offer by code.
+ * Rate limited to prevent abuse.
  */
 export async function POST(request: Request) {
   try {
-    // Verify authentication token
-    const authToken = request.headers.get('x-auth-token');
-    const timestampHeader = request.headers.get('x-timestamp');
-
-    if (!authToken || !timestampHeader) {
-      return NextResponse.json(
-        { message: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const timestamp = parseInt(timestampHeader, 10);
-    const isValid = await verifyToken(authToken, timestamp);
-    if (!isValid) {
-      return NextResponse.json(
-        { message: 'Unauthorized - Invalid or expired token' },
-        { status: 401 }
-      );
-    }
-
     // Rate limiting
     const forwarded = request.headers.get('x-forwarded-for');
     const ip = forwarded ? forwarded.split(',')[0] : 'unknown';
