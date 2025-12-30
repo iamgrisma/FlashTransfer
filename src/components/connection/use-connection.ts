@@ -232,20 +232,26 @@ export function useBidirectionalConnection({
             const newPeer = new Peer({ initiator: false, trickle: false });
             peerRef.current = newPeer;
 
+            // Subscribe to channel FIRST before signaling
+            const channel = supabase.channel(`share-session-${data.id}`);
+            channelRef.current = channel;
+
+            await new Promise<void>((resolve) => {
+                channel.subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        resolve();
+                    }
+                });
+            });
+
+            // Now set up signal handler - channel is ready
             newPeer.on('signal', (answer) => {
                 if (answer.type !== 'answer') return;
 
-                const channel = supabase.channel(`share-session-${data.id}`);
-                channelRef.current = channel;
-
-                channel.subscribe((status) => {
-                    if (status === 'SUBSCRIBED') {
-                        channel.send({
-                            type: 'broadcast',
-                            event: 'answer',
-                            payload: { answer },
-                        });
-                    }
+                channel.send({
+                    type: 'broadcast',
+                    event: 'answer',
+                    payload: { answer },
                 });
             });
 
@@ -273,6 +279,7 @@ export function useBidirectionalConnection({
                 onConnectionLost();
             });
 
+            // Signal the offer AFTER everything is set up
             newPeer.signal(offer);
 
         } catch (err: any) {
