@@ -110,6 +110,5 @@ function generateCode() {
 }
 
 async function sendAnswerToServer(code, answer) {
-    const { sendSignalAnswer } = await import('./api.js')
     return sendSignalAnswer(code, answer)
 }
