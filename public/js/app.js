@@ -1,6 +1,7 @@
-import { createOffer, joinOffer, initP2P, setupPeerListeners } from './p2p.js?v=premium'
-import { createSession, getSession, sendFileMetadata } from './api.js?v=premium'
-import { showStatus, hideStatus, showToast, formatBytes } from './utils.js?v=premium'
+
+import { initP2P, createOffer, joinOffer, sendFile, cleanup } from './p2p.js?v=premium'
+import { createSession, getSession } from './api.js?v=premium'
+import { showToast, showStatus, hideStatus, formatBytes } from './utils.js?v=premium'
 
 // Main app state
 const state = {
@@ -8,172 +9,105 @@ const state = {
     isHost: false,
     isConnected: false,
     connectionCode: '',
-    selectedFiles: [],
-    receivingFiles: new Map(),
-    sendingFiles: new Map()
+    pendingFiles: [], // Files selected from "Send" page, waiting to be offered
+    receivingFiles: new Map(), // map of fileName -> receiveState
+    sendingFiles: new Map() // map of fileName -> File object
 }
 
-// Import modules
-import { initP2P, createOffer, joinOffer, sendFile, cleanup } from './p2p.js'
-import { createSession, getSession } from './api.js'
-import { showToast, showStatus, hideStatus, formatBytes } from './utils.js'
+let currentReceive = null
+
+// View Management
+const views = {
+    landing: document.getElementById('view-landing'),
+    receive: document.getElementById('view-receive'),
+    host: document.getElementById('view-host'),
+    chat: document.getElementById('view-chat')
+}
+
+function switchView(viewName) {
+    Object.values(views).forEach(el => el && el.classList.add('hidden'))
+    if (views[viewName]) {
+        views[viewName].classList.remove('hidden')
+    }
+}
+
+// Expose routing for HTML buttons
+window.showReceiveView = () => switchView('receive')
+window.showLandingView = () => switchView('landing')
+
 
 // Initialize
 window.addEventListener('DOMContentLoaded', () => {
+    // Check if we are auto-joining (url has code)
+    if (checkURLForCode()) return
+
+    // Otherwise show landing
+    switchView('landing')
+
     setupEventListeners()
-    checkURLForCode()
-    console.log('Flashare: Premium UI Loaded v2')
+    console.log('Flashare: Chat-First UI Loaded')
 })
 
+
 function setupEventListeners() {
-    // File selection
-    const fileInput = document.getElementById('fileInput')
-    const fileInputFiles = document.getElementById('fileInputFiles')
-    const dropzone = document.getElementById('dropzone')
+    const fileInputInit = document.getElementById('fileInputInit')
+    const fileInputChat = document.getElementById('fileInputChat')
 
-    fileInput.addEventListener('change', handleFileSelection)
-    fileInputFiles.addEventListener('change', handleFileSelection)
-
-    // Drag and drop
-    dropzone.addEventListener('dragover', (e) => {
-        e.preventDefault()
-        dropzone.classList.add('border-purple-500', 'bg-purple-50')
-    })
-
-    dropzone.addEventListener('dragleave', () => {
-        dropzone.classList.remove('border-purple-500', 'bg-purple-50')
-    })
-
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault()
-        dropzone.classList.remove('border-purple-500', 'bg-purple-50')
-
-        const files = Array.from(e.dataTransfer.files)
-        if (files.length > 0) {
-            addFiles(files)
-        }
-    })
-}
-
-function handleFileSelection(e) {
-    const files = Array.from(e.target.files)
-    addFiles(files)
-}
-
-function addFiles(files) {
-    state.selectedFiles.push(...files)
-    updateFileList()
-    document.getElementById('createBtn').disabled = false
-}
-
-function updateFileList() {
-    const container = document.getElementById('selectedFiles')
-    const list = document.getElementById('fileList')
-    const count = document.getElementById('fileCount')
-
-    if (state.selectedFiles.length === 0) {
-        container.classList.add('hidden')
-        return
+    // 1. Initial Send Click (from Landing)
+    if (fileInputInit) {
+        fileInputInit.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files)
+            if (files.length > 0) {
+                startHostingSession(files)
+            }
+        })
     }
 
-    container.classList.remove('hidden')
-    count.textContent = state.selectedFiles.length
-
-    list.innerHTML = state.selectedFiles.map((file, index) => `
-        <div class="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-            <span class="truncate flex-1">📄 ${file.name}</span>
-            <span class="text-gray-500 text-xs ml-2">${formatBytes(file.size)}</span>
-        </div>
-    `).join('')
-}
-
-window.clearFiles = () => {
-    state.selectedFiles = []
-    updateFileList()
-    document.getElementById('fileInput').value = ''
-    document.getElementById('fileInputFiles').value = ''
-    document.getElementById('createBtn').disabled = true
-    document.getElementById('createBtn').disabled = true
-}
-
-window.handleAddMoreFiles = (input) => {
-    const files = Array.from(input.files)
-    if (files.length > 0) {
-        state.selectedFiles.push(...files)
-
-        // If connected, update UI and notify peer
-        if (state.isConnected) {
-            displaySendableFiles()
-            sendFileList() // This sends the updated list to peer
-            showToast(`Added ${files.length} files`)
-        } else {
-            // If not connected yet (rare case in this view but possible if disconnected)
-            updateFileList()
-        }
+    // 2. Chat Attachment Click (from Chat Room)
+    if (fileInputChat) {
+        fileInputChat.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files)
+            if (files.length > 0) {
+                handleChatFiles(files)
+            }
+        })
     }
-    input.value = '' // Reset
 }
 
-// Create connection
-window.createConnection = async () => {
-    if (state.selectedFiles.length === 0) {
-        showToast('Please select files first')
-        return
-    }
+// ------------------------------------------
+// HOSTING FLOW (SENDER)
+// ------------------------------------------
 
-    showStatus(spinner('Creating connection...'))
+async function startHostingSession(files) {
+    showStatus(spinner('Creating room...'))
 
     try {
-        const { code, peerId } = await createOffer(state.selectedFiles)
+        state.pendingFiles = files // Queue for later (when chat connects)
+
+        const { code, peerId } = await createOffer()
         state.connectionCode = code
         state.isHost = true
 
-        // Setup peer
         state.peer = await initP2P(true, (peer) => {
             setupPeerListeners(peer)
         })
 
-        // Wait for signal data
         const offer = await new Promise(resolve => state.peer.once('signal', resolve))
-
-        // Send to server
         await createSession(offer, state.connectionCode)
 
         hideStatus()
+        switchView('host')
 
-        const shareLink = window.location.origin + '/#' + state.connectionCode
-        showStatus(`
-            <div class="flex flex-col items-center gap-6 py-4">
-                <div class="animate-spin inline-block w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full"></div>
-                
-                <!-- Code Section -->
-                <div class="bg-white p-6 rounded-xl shadow border border-gray-100 w-full max-w-md text-center">
-                    <p class="text-xs text-gray-500 mb-2 uppercase tracking-widest font-bold">One-Time Code</p>
-                    <div class="flex items-center gap-2 justify-center mb-4">
-                        <code class="text-4xl font-mono font-bold text-gray-800 tracking-widest bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">${state.connectionCode}</code>
-                    </div>
-                    <p class="text-sm text-gray-400 mb-4">Share this code with your peer</p>
-                    
-                    <div class="relative flex items-center gap-2 border-t border-gray-100 pt-4">
-                        <input type="text" value="${shareLink}" readonly class="flex-1 bg-gray-50 border border-gray-200 text-gray-600 text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        <button onclick="navigator.clipboard.writeText('${shareLink}'); showToast('Link copied!')" 
-                            class="bg-purple-600 text-white px-4 py-2.5 rounded-lg hover:bg-purple-700 font-medium text-sm transition shadow-sm whitespace-nowrap">
-                            Copy Link
-                        </button>
-                    </div>
-                </div>
-                
-                 <div class="text-sm text-gray-400 animate-pulse">Waiting for peer to join...</div>
-            </div>
-        `)
+        // Update Lobby UI
+        document.getElementById('displayCode').textContent = code
+        document.getElementById('shareLink').value = window.location.origin + '/#' + code
 
-        // Start polling for answer
-        waitForAnswer(state.connectionCode)
+        waitForAnswer(code)
 
     } catch (error) {
         hideStatus()
-        showToast('Failed to create connection: ' + error.message)
-        console.error(error)
+        showToast('Error: ' + error.message)
+        switchView('landing')
     }
 }
 
@@ -193,7 +127,7 @@ async function waitForAnswer(code) {
                 state.peer.signal(answer)
             }
         } catch (e) {
-            // Only log real errors, not 404s while waiting
+            // Only log real errors
             if (!e.message.includes('Session not found')) {
                 console.error('Polling error:', e)
             }
@@ -201,7 +135,10 @@ async function waitForAnswer(code) {
     }, 2000)
 }
 
-// Join connection
+// ------------------------------------------
+// JOINING FLOW (RECEIVER)
+// ------------------------------------------
+
 window.joinConnection = async () => {
     const input = document.getElementById('joinInput').value.trim()
     if (!input) {
@@ -230,42 +167,29 @@ window.joinConnection = async () => {
     } catch (error) {
         hideStatus()
         showToast('Failed to join: ' + error.message)
-        // If auto-joined failed, show landing
-        if (!document.getElementById('view-receive').classList.contains('hidden')) {
-            // stay on receive view
-        } else {
+        if (document.getElementById('view-receive').classList.contains('hidden')) {
             switchView('landing')
         }
     }
 }
 
-function extractCode(input) {
-    // If it's a URL, extract the code
-    if (input.includes('/') || input.includes('://')) {
-        const url = new URL(input.startsWith('http') ? input : window.location.origin + '/' + input)
-        return url.pathname.split('/').pop() || url.hash.slice(1)
-    }
-    return input
-}
-
-function checkURLForCode() {
-    const hash = window.location.hash.slice(1)
-    if (hash && hash.length === 5) {
-        document.getElementById('joinInput').value = hash // Pre-fill
-        joinConnection() // Auto-join
-        return true
-    }
-    return false
-}
+// ------------------------------------------
+// P2P & CHAT LOGIC
+// ------------------------------------------
 
 function setupPeerListeners(peer) {
     peer.on('connect', () => {
         state.isConnected = true
+        hideStatus()
         showToast('✓ Connected!')
 
-        // If host, send file list
-        if (state.isHost) {
-            sendFileList()
+        switchView('chat')
+        document.getElementById('headerStatus').classList.remove('hidden')
+
+        // If host, process the files selected on Landing Page
+        if (state.pendingFiles && state.pendingFiles.length > 0) {
+            handleChatFiles(state.pendingFiles)
+            state.pendingFiles = []
         }
     })
 
@@ -284,15 +208,17 @@ function setupPeerListeners(peer) {
 
 function handlePeerData(data) {
     try {
-        // Try to parse as JSON (control messages)
         const message = JSON.parse(data.toString())
 
         switch (message.type) {
-            case 'fileList':
-                displayReceivableFiles(message.files)
+            case 'chat':
+                appendChat('Peer', message.text, 'bg-gray-100 text-gray-800')
                 break
-            case 'fileRequest':
-                handleFileRequest(message.fileName)
+            case 'fileOffer':
+                appendChatFile('peer', message.fileName, message.fileSize, 'offer')
+                break
+            case 'fileAccept':
+                startSendingFile(message.fileName)
                 break
             case 'fileStart':
                 startReceivingFile(message.fileName, message.fileSize)
@@ -300,110 +226,65 @@ function handlePeerData(data) {
             case 'fileComplete':
                 completeFileReceive(message.fileName)
                 break
-            case 'chat':
-                appendChat('Peer', message.text, 'text-gray-800')
-                break
-            default:
-                console.log('Unknown message type:', message.type)
         }
     } catch (e) {
-        // Binary data - file chunk
+        // Binary data
         handleFileChunk(data)
     }
 }
 
-function sendFileList() {
-    const fileList = state.selectedFiles.map(f => ({
-        name: f.name,
-        size: f.size,
-        type: f.type
-    }))
+// ------------------------------------------
+// FILE HANDLING (CHAT STYLE)
+// ------------------------------------------
 
+async function handleChatFiles(files) {
+    for (const file of files) {
+        state.sendingFiles.set(file.name, file)
+
+        // 1. Send Offer
+        const metadata = {
+            type: 'fileOffer',
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type
+        }
+        state.peer.send(JSON.stringify(metadata))
+
+        // 2. Render "Sent" Bubble
+        appendChatFile('me', file.name, file.size, 'sent')
+    }
+}
+
+window.acceptFile = (fileName) => {
     state.peer.send(JSON.stringify({
-        type: 'fileList',
-        files: fileList
+        type: 'fileAccept',
+        fileName: fileName
     }))
 
-    // Display in send list
-    displaySendableFiles()
-}
-
-function displaySendableFiles() {
-    const list = document.getElementById('sendList')
-    list.innerHTML = state.selectedFiles.map(file => `
-        <div class="file-item p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <div class="flex justify-between items-center mb-1">
-                <span class="font-medium text-sm truncate">${file.name}</span>
-                <span class="text-xs text-gray-500">${formatBytes(file.size)}</span>
-            </div>
-            <div id="send-${file.name}" class="text-xs text-gray-500">Ready to send</div>
-        </div>
-    `).join('')
-}
-
-function displayReceivableFiles(files) {
-    const list = document.getElementById('receiveList')
-    list.innerHTML = files.map(file => `
-        <div class="file-item p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <div class="flex justify-between items-center mb-2">
-                <span class="font-medium text-sm truncate">${file.name}</span>
-                <span class="text-xs text-gray-500">${formatBytes(file.size)}</span>
-            </div>
-            <button 
-                onclick="requestFile('${file.name}')" 
-                class="w-full py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
-            >
-                Download
-            </button>
-            <div id="recv-${file.name}" class="mt-1"></div>
-        </div>
-    `).join('')
-}
-
-window.sendAllFiles = async () => {
-    for (const file of state.selectedFiles) {
-        await sendSingleFile(file)
+    // UI Update
+    const idSafe = fileName.replace(/[^a-zA-Z0-9]/g, '')
+    const btn = document.getElementById(`btn-${idSafe}`)
+    if (btn) {
+        btn.textContent = 'Downloading...'
+        btn.disabled = true
+        btn.classList.add('opacity-75', 'cursor-not-allowed')
     }
 }
 
-async function sendSingleFile(file) {
-    const statusEl = document.getElementById(`send-${file.name}`)
-    if (!statusEl) return
+async function startSendingFile(fileName) {
+    const file = state.sendingFiles.get(fileName)
+    if (!file) return
 
-    statusEl.textContent = 'Sending...'
+    const idSafe = fileName.replace(/[^a-zA-Z0-9]/g, '')
+    const progressContainer = document.getElementById(`progress-send-${idSafe}`)
+    if (progressContainer) progressContainer.classList.remove('hidden')
 
-    try {
-        await sendFile(state.peer, file, (progress) => {
-            statusEl.innerHTML = `
-                <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                    <div class="bg-purple-600 h-2 rounded-full progress-bar" style="width: ${progress}%"></div>
-                </div>
-                <div class="text-xs mt-1">${Math.round(progress)}%</div>
-            `
-        })
-        statusEl.textContent = '✓ Sent'
-        statusEl.classList.add('text-green-600')
-    } catch (error) {
-        statusEl.textContent = '✗ Failed'
-        statusEl.classList.add('text-red-600')
-    }
+    await sendFile(state.peer, file, (progress) => {
+        if (progressContainer) {
+            progressContainer.firstElementChild.style.width = `${progress}%`
+        }
+    })
 }
-
-window.requestFile = (fileName) => {
-    state.peer.send(JSON.stringify({
-        type: 'fileRequest',
-        fileName
-    }))
-}
-
-function handleFileRequest(fileName) {
-    const file = state.selectedFiles.find(f => f.name === fileName)
-    if (file) {
-        sendSingleFile(file)
-    }
-}
-
-let currentReceive = null
 
 function startReceivingFile(fileName, fileSize) {
     currentReceive = {
@@ -413,10 +294,9 @@ function startReceivingFile(fileName, fileSize) {
         receivedSize: 0
     }
 
-    const statusEl = document.getElementById(`recv-${fileName}`)
-    if (statusEl) {
-        statusEl.innerHTML = 'Receiving...'
-    }
+    const idSafe = fileName.replace(/[^a-zA-Z0-9]/g, '')
+    const bar = document.getElementById(`progress-recv-${idSafe}`)
+    if (bar) bar.classList.remove('hidden')
 }
 
 function handleFileChunk(chunk) {
@@ -426,32 +306,30 @@ function handleFileChunk(chunk) {
     currentReceive.receivedSize += chunk.byteLength
 
     const progress = (currentReceive.receivedSize / currentReceive.fileSize) * 100
-    const statusEl = document.getElementById(`recv-${currentReceive.fileName}`)
 
-    if (statusEl) {
-        statusEl.innerHTML = `
-            <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-blue-600 h-2 rounded-full progress-bar" style="width: ${progress}%"></div>
-            </div>
-            <div class="text-xs mt-1">${Math.round(progress)}%</div>
-        `
+    const idSafe = currentReceive.fileName.replace(/[^a-zA-Z0-9]/g, '')
+    const bar = document.querySelector(`#progress-recv-${idSafe} > div`)
+    if (bar) {
+        bar.style.width = `${progress}%`
     }
 }
 
 function completeFileReceive(fileName) {
     if (currentReceive && currentReceive.fileName === fileName) {
-        // Create blob and download
         const blob = new Blob(currentReceive.chunks)
         const url = URL.createObjectURL(blob)
+
         const a = document.createElement('a')
         a.href = url
         a.download = fileName
         a.click()
         URL.revokeObjectURL(url)
 
-        const statusEl = document.getElementById(`recv-${fileName}`)
-        if (statusEl) {
-            statusEl.innerHTML = '<span class="text-green-600">✓ Downloaded</span>'
+        const idSafe = fileName.replace(/[^a-zA-Z0-9]/g, '')
+        const btn = document.getElementById(`btn-${idSafe}`)
+        if (btn) {
+            btn.textContent = '✓ Saved'
+            btn.className = 'w-full py-1.5 bg-green-500 text-white text-xs font-bold rounded-lg shadow-sm'
         }
 
         currentReceive = null
@@ -459,12 +337,105 @@ function completeFileReceive(fileName) {
     }
 }
 
-function showConnected() {
-    document.getElementById('not-connected').classList.add('hidden')
-    document.getElementById('connected').classList.remove('hidden')
+// ------------------------------------------
+// UI HELPERS
+// ------------------------------------------
 
-    const shareLink = `${window.location.origin}/#${state.connectionCode}`
-    document.getElementById('shareLink').value = shareLink
+window.sendChatMessage = () => {
+    const input = document.getElementById('chatInput')
+    const text = input.value.trim()
+    if (!text || !state.peer) return
+
+    state.peer.send(JSON.stringify({ type: 'chat', text }))
+    appendChat('You', text)
+    input.value = ''
+}
+
+function appendChat(user, text) {
+    const log = document.getElementById('chatLog')
+    const isMe = user === 'You'
+
+    const div = document.createElement('div')
+    div.className = `flex w-full ${isMe ? 'justify-end' : 'justify-start'}`
+    div.innerHTML = `
+        <div class="max-w-[80%] px-4 py-2 rounded-xl text-sm ${isMe ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'}">
+            ${text}
+        </div>
+    `
+    log.appendChild(div)
+    log.scrollTop = log.scrollHeight
+}
+
+function appendChatFile(sender, fileName, fileSize, status) {
+    const log = document.getElementById('chatLog')
+    const isMe = sender === 'me'
+    const idSafe = fileName.replace(/[^a-zA-Z0-9]/g, '')
+
+    let content = ''
+
+    if (status === 'sent') {
+        content = `
+            <div class="flex items-center gap-3">
+                <div class="bg-purple-100 p-2 rounded-lg text-purple-600">📄</div>
+                <div>
+                    <p class="font-medium truncate max-w-[150px]">${fileName}</p>
+                    <p class="text-xs opacity-70">${formatBytes(fileSize)} • Ready to send</p>
+                </div>
+            </div>
+            <div id="progress-send-${idSafe}" class="h-1 bg-white/20 mt-2 rounded-full overflow-hidden w-full hidden">
+                <div class="h-full bg-white w-0 transition-all duration-200"></div>
+            </div>
+        `
+    } else if (status === 'offer') {
+        content = `
+            <div class="flex items-center gap-3 mb-2">
+                <div class="bg-indigo-100 p-2 rounded-lg text-indigo-600">⬇️</div>
+                <div>
+                    <p class="font-medium truncate max-w-[150px]">${fileName}</p>
+                    <p class="text-xs text-gray-500">${formatBytes(fileSize)}</p>
+                </div>
+            </div>
+            <button onclick="acceptFile('${fileName}')" id="btn-${idSafe}"
+                class="w-full py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition shadow-sm">
+                Download
+            </button>
+            <div id="progress-recv-${idSafe}" class="h-1 bg-gray-100 mt-2 rounded-full overflow-hidden w-full hidden">
+                <div class="h-full bg-indigo-500 w-0 transition-all duration-200"></div>
+            </div>
+        `
+    }
+
+    const div = document.createElement('div')
+    div.className = `flex w-full ${isMe ? 'justify-end' : 'justify-start'}`
+    div.innerHTML = `
+        <div class="max-w-[85%] p-3 rounded-xl ${isMe ? 'bg-purple-500 text-white rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'}">
+            ${content}
+        </div>
+    `
+    log.appendChild(div)
+    log.scrollTop = log.scrollHeight
+}
+
+// ------------------------------------------
+// UTILITIES
+// ------------------------------------------
+
+function extractCode(input) {
+    if (input.includes('/') || input.includes('://')) {
+        const url = new URL(input.startsWith('http') ? input : window.location.origin + '/' + input)
+        return url.pathname.split('/').pop() || url.hash.slice(1)
+    }
+    return input
+}
+
+function checkURLForCode() {
+    const hash = window.location.hash.slice(1)
+    if (hash && hash.length === 5) {
+        document.getElementById('joinInput').value = hash // Pre-fill
+        joinConnection() // Auto-join
+        return true
+    }
+    return false
 }
 
 window.copyShareLink = () => {
@@ -478,40 +449,15 @@ window.disconnect = () => {
     if (state.peer) {
         cleanup(state.peer)
     }
-
     state.peer = null
     state.isConnected = false
     state.connectionCode = ''
-
-    document.getElementById('not-connected').classList.remove('hidden')
-    document.getElementById('connected').classList.add('hidden')
-
+    switchView('landing')
     showToast('Disconnected')
+    document.getElementById('headerStatus').classList.add('hidden')
+    document.getElementById('chatLog').innerHTML = `<div class="flex justify-center my-4"><span class="bg-gray-200 text-gray-600 text-xs px-3 py-1 rounded-full">⚡ Ready to Connect</span></div>`
 }
 
-window.sendChatMessage = () => {
-    const input = document.getElementById('chatInput')
-    const text = input.value.trim()
-    if (!text || !state.peer) return
-
-    state.peer.send(JSON.stringify({ type: 'chat', text }))
-    appendChat('You', text, 'text-purple-600 font-medium')
-    input.value = ''
-}
-
-function appendChat(user, text, classes) {
-    const log = document.getElementById('chatLog')
-    const div = document.createElement('div')
-    div.innerHTML = `<span class="${classes}">${user}:</span> ${text}`
-    log.appendChild(div)
-    log.scrollTop = log.scrollHeight
-}
-
-// API calls moved to api.js
-// async function sendOfferToServer...
-// async function getOfferFromServer...
-
-// Helper for spinner UI
 function spinner(text) {
     return `
         <div class="bg-white border border-gray-100 rounded-xl p-6 text-center shadow-sm w-full max-w-sm mx-auto">

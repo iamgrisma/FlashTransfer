@@ -15,236 +15,259 @@
             font-family: 'Inter', sans-serif;
         }
 
-        .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
         }
 
-        .file-item {
-            transition: all 0.2s ease;
-        }
-
-        .file-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .progress-bar {
-            transition: width 0.3s ease;
-        }
-
-        @keyframes pulse-glow {
-
-            0%,
-            100% {
-                box-shadow: 0 0 20px rgba(102, 126, 234, 0.4);
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
             }
 
-            50% {
-                box-shadow: 0 0 30px rgba(102, 126, 234, 0.8);
+            to {
+                opacity: 1;
+                transform: translateY(0);
             }
         }
 
-        .connecting {
-            animation: pulse-glow 2s infinite;
+        /* Custom Scrollbar for Chat */
+        #chatLog::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #chatLog::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #chatLog::-webkit-scrollbar-thumb {
+            background-color: #e2e8f0;
+            border-radius: 20px;
         }
     </style>
 </head>
 
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen text-gray-800 font-sans">
 
-    <!-- Header -->
-    <header class="gradient-bg text-white py-6 shadow-lg">
-        <div class="container mx-auto px-4">
-            <h1 class="text-3xl font-bold">⚡ Flashare</h1>
-            <p class="text-gray-100 text-sm mt-1">Instant P2P File Sharing</p>
+    <!-- Header (Global) -->
+    <header class="bg-white shadow-sm border-b border-gray-100 py-4 fixed w-full top-0 z-50">
+        <div class="container mx-auto px-4 flex items-center justify-between">
+            <div class="flex items-center gap-2" onclick="location.reload()" style="cursor: pointer;">
+                <div
+                    class="bg-gradient-to-r from-purple-600 to-indigo-600 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-lg">
+                    ⚡</div>
+                <h1
+                    class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600">
+                    FlashTransfer</h1>
+            </div>
+
+            <!-- Connection Status Indicator (Visible when connected) -->
+            <div id="headerStatus" class="hidden flex items-center gap-3">
+                <span class="flex h-3 w-3 relative">
+                    <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                <span class="text-sm font-semibold text-green-700">Connected</span>
+            </div>
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- Main Container -->
+    <main class="container mx-auto px-4 py-8 pt-24 max-w-3xl min-h-[calc(100vh-80px)] flex flex-col justify-center">
 
-        <!-- Not Connected State -->
-        <div id="not-connected" class="space-y-6">
+        <!-- VIEW 1: LANDING (Split Choice) -->
+        <div id="view-landing" class="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
 
-            <!-- File Selection -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold mb-4">📁 Select Files or Folders</h2>
-
-                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-500 transition-colors cursor-pointer"
-                    id="dropzone">
-                    <input type="file" id="fileInput" multiple webkitdirectory directory class="hidden">
-                    <input type="file" id="fileInputFiles" multiple class="hidden">
-
-                    <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" stroke="currentColor" fill="none"
-                        viewBox="0 0 48 48">
-                        <path
-                            d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-
-                    <p class="text-lg font-medium text-gray-700 mb-2">Drag & drop files or folders here</p>
-                    <p class="text-sm text-gray-500 mb-4">or click to browse</p>
-
-                    <div class="flex gap-3 justify-center">
-                        <button onclick="document.getElementById('fileInputFiles').click()"
-                            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
-                            Select Files
-                        </button>
-                        <button onclick="document.getElementById('fileInput').click()"
-                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                            Select Folder
-                        </button>
-                    </div>
+            <!-- Send Card -->
+            <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
+                onclick="document.getElementById('fileInputInit').click()">
+                <div
+                    class="absolute top-0 left-0 w-full h-1 bg-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
                 </div>
-
-                <!-- Selected Files Preview -->
-                <div id="selectedFiles" class="mt-4 space-y-2 hidden">
-                    <div class="flex justify-between items-center">
-                        <h3 class="font-semibold text-gray-700">Selected: <span id="fileCount">0</span> files</h3>
-                        <button onclick="clearFiles()" class="text-sm text-red-600 hover:text-red-700">Clear
-                            All</button>
+                <div class="p-8 flex flex-col items-center text-center h-full justify-center py-16">
+                    <div
+                        class="w-20 h-20 bg-purple-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <svg class="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                            </path>
+                        </svg>
                     </div>
-                    <div id="fileList" class="max-h-48 overflow-y-auto space-y-1"></div>
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Send Files</h2>
+                    <p class="text-gray-500">Create a secure link to share files directly with a peer.</p>
+                    <button
+                        class="mt-8 px-8 py-3 bg-purple-600 text-white rounded-xl font-medium shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all transform group-hover:-translate-y-1">Start
+                        Transfer</button>
+                    <!-- Hidden Input for initial trigger -->
+                    <input type="file" id="fileInputInit" multiple class="hidden">
                 </div>
             </div>
 
-            <!-- Connection Options -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold mb-4">🔗 Connect</h2>
+            <!-- Receive Card -->
+            <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
+                onclick="showReceiveView()">
+                <div
+                    class="absolute top-0 left-0 w-full h-1 bg-indigo-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
+                </div>
+                <div class="p-8 flex flex-col items-center text-center h-full justify-center py-16">
+                    <div
+                        class="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <svg class="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Receive Files</h2>
+                    <p class="text-gray-500">Enter a code to join an existing transfer session.</p>
+                    <button
+                        class="mt-8 px-8 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-xl font-medium hover:bg-indigo-50 transition-all">Enter
+                        Code</button>
+                </div>
+            </div>
+        </div>
 
+        <!-- VIEW 2: RECEIVE CODE ENTRY -->
+        <div id="view-receive" class="hidden max-w-md mx-auto w-full animate-fade-in">
+            <button onclick="showLandingView()"
+                class="mb-6 text-gray-500 hover:text-gray-800 flex items-center gap-2 text-sm font-medium transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Home
+            </button>
+
+            <div class="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center">
+                <h2 class="text-xl font-bold text-gray-800 mb-6">Enter Connection Code</h2>
                 <div class="space-y-4">
-                    <!-- Create Link -->
-                    <button id="createBtn" onclick="createConnection()"
-                        class="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                        Create Share Link
+                    <input type="text" id="joinInput" maxlength="5" placeholder="e.g. x9f2k"
+                        class="w-full text-center text-3xl font-mono tracking-widest uppercase py-4 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-0 outline-none transition-all placeholder-gray-300">
+                    <button onclick="joinConnection()"
+                        class="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5">
+                        Join Transfer
                     </button>
-
-                    <!-- Or Divider -->
-                    <div class="relative">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-300"></div>
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-2 bg-white text-gray-500">or</span>
-                        </div>
-                    </div>
-
-                    <!-- Join Connection -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Enter code or paste link</label>
-                        <div class="flex gap-2">
-                            <input type="text" id="joinInput" placeholder="abc12 or full URL"
-                                class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                onkeypress="if(event.key==='Enter') joinConnection()">
-                            <button onclick="joinConnection()"
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                                Join
-                            </button>
-                        </div>
-                    </div>
                 </div>
+                <p class="mt-4 text-xs text-gray-400">The code is provided by the sender.</p>
             </div>
         </div>
 
-        <!-- Connected State -->
-        <div id="connected" class="hidden space-y-6">
+        <!-- VIEW 3: HOST LOBBY (Waiting for Peer) -->
+        <div id="view-host" class="hidden max-w-lg mx-auto w-full text-center animate-fade-in">
+            <div class="bg-white rounded-2xl shadow-xl border border-purple-100 p-8 overflow-hidden relative">
+                <!-- Decorative background elements -->
+                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-indigo-500"></div>
 
-            <!-- Connection Info -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 class="text-xl font-semibold">✓ Connected</h2>
-                        <p class="text-sm text-gray-600">Share this link with your peer:</p>
-                    </div>
-                    <button onclick="disconnect()"
-                        class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm">
-                        Disconnect
-                    </button>
+                <h2 class="text-gray-500 uppercase tracking-widest text-xs font-bold mb-4">Share this code</h2>
+
+                <div class="flex items-center justify-center gap-3 mb-8">
+                    <code id="displayCode"
+                        class="text-5xl font-black text-gray-800 font-mono tracking-wider">-----</code>
                 </div>
 
-                <div class="flex gap-2">
-                    <input type="text" id="shareLink" readonly
-                        class="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm">
-                    <button onclick="copyShareLink()"
-                        class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm">
-                        Copy
-                    </button>
+                <div class="flex flex-col gap-3">
+                    <div class="flex items-center gap-2 bg-gray-50 p-2 pl-4 rounded-xl border border-gray-200">
+                        <input type="text" id="shareLink" readonly
+                            class="bg-transparent flex-1 text-sm text-gray-600 outline-none">
+                        <button onclick="copyShareLink()"
+                            class="bg-white text-gray-700 px-4 py-2 rounded-lg text-sm font-medium shadow-sm border border-gray-200 hover:bg-gray-50 transition-colors">Copy</button>
+                    </div>
+                    <p
+                        class="text-sm text-purple-600 font-medium animate-pulse mt-2 flex items-center justify-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-purple-600"></span>
+                        Waiting for receiver to join...
+                    </p>
+                </div>
+
+                <!-- Warning Banner -->
+                <div class="mt-8 bg-amber-50 border border-amber-100 rounded-lg p-3 text-left flex items-start gap-3">
+                    <span class="text-amber-500 text-xl">⚠️</span>
+                    <p class="text-xs text-amber-800 leading-relaxed"><strong>Do not close this tab.</strong> The file
+                        transfer happens directly between devices. Closing this tab will kill the connection.</p>
+                </div>
+            </div>
+            <button onclick="location.reload()" class="mt-6 text-gray-400 hover:text-gray-600 text-sm">Cancel
+                Transfer</button>
+        </div>
+
+        <!-- VIEW 4: UNIFIED CHAT ROOM (Connected) -->
+        <div id="view-chat"
+            class="hidden flex flex-col h-[70vh] max-w-4xl mx-auto w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden animate-fade-in">
+
+            <!-- Connection Warning Header -->
+            <div
+                class="bg-amber-50 border-b border-amber-100 px-4 py-2 flex items-center justify-center gap-2 text-xs text-amber-800">
+                <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                    </path>
+                </svg>
+                <span>Do not refresh or close this tab. Connection will be lost.</span>
+            </div>
+
+            <!-- Chat Log -->
+            <div id="chatLog" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
+                <!-- Messages will be injected here -->
+                <div class="flex justify-center my-4">
+                    <span class="bg-gray-200 text-gray-600 text-xs px-3 py-1 rounded-full">⚡ Connection
+                        Established</span>
                 </div>
             </div>
 
-            <!-- Transfer Area -->
-            <div class="grid md:grid-cols-2 gap-6">
-
-                <!-- Send Section -->
-                <div class="bg-white rounded-lg shadow-md p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold">📤 Send</h3>
-                        <div class="relative">
-                            <input type="file" id="addMoreInput" multiple class="hidden"
-                                onchange="handleAddMoreFiles(this)">
-                            <button onclick="document.getElementById('addMoreInput').click()"
-                                class="text-sm text-purple-600 hover:text-purple-700 font-medium">
-                                + Add Files
-                            </button>
-                        </div>
-                    </div>
-                    <div id="sendList" class="space-y-2 max-h-96 overflow-y-auto"></div>
-                    <button onclick="sendAllFiles()" id="sendAllBtn"
-                        class="w-full mt-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50">
-                        Send All
+            <!-- Input Area -->
+            <div class="p-4 bg-white border-t border-gray-100">
+                <div class="flex gap-3">
+                    <button onclick="document.getElementById('fileInputChat').click()"
+                        class="p-3 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-xl transition-colors"
+                        title="Attach File">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
+                            </path>
+                        </svg>
                     </button>
-                </div>
+                    <!-- Input for in-chat file sending -->
+                    <input type="file" id="fileInputChat" multiple class="hidden">
 
-                <!-- Receive Section -->
-                <div class="bg-white rounded-lg shadow-md p-6">
-                    <h3 class="text-lg font-semibold mb-4">📥 Receive</h3>
-                    <div id="receiveList" class="space-y-2 max-h-96 overflow-y-auto">
-                        <p class="text-gray-500 text-sm">Waiting for files...</p>
-                    </div>
-                </div>
-
-            </div>
-            <!-- Chat Section -->
-            <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-                <h3 class="text-lg font-semibold mb-4">💬 Chat</h3>
-                <div id="chatLog"
-                    class="h-48 overflow-y-auto mb-4 p-3 bg-gray-50 rounded border border-gray-200 text-sm space-y-2">
-                </div>
-                <div class="flex gap-2">
                     <input type="text" id="chatInput" placeholder="Type a message..."
-                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                        class="flex-1 bg-gray-50 border border-gray-200 text-gray-700 rounded-xl px-4 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all"
                         onkeypress="if(event.key==='Enter') sendChatMessage()">
+
                     <button onclick="sendChatMessage()"
-                        class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Send</button>
+                        class="p-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 shadow-md transition-all transform active:scale-95">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 19l9-2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
-
         </div>
 
-        <!-- Loading/Status -->
-        <div id="status" class="hidden mt-8">
-            <div id="statusText" class="w-full"></div>
+        <!-- Global Status / Spinner Overlay -->
+        <div id="status"
+            class="hidden fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div id="statusText" class="w-full max-w-sm"></div>
         </div>
 
     </main>
 
     <!-- Toast Notifications -->
-    <div id="toast" class="fixed bottom-4 right-4 hidden">
-        <div class="bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg">
-            <p id="toastText"></p>
+    <div id="toast" class="fixed bottom-6 right-6 translate-y-20 opacity-0 transition-all duration-300 z-50">
+        <div class="bg-gray-900/90 text-white px-6 py-3 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-3">
+            <span class="text-green-400">✓</span>
+            <p id="toastText" class="font-medium"></p>
         </div>
     </div>
 
-    <!-- Polyfills for simple-peer -->
+    <!-- Polyfills & Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
     <script>
         window.Buffer = window.buffer.Buffer;
         window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); } };
-        window.global = window;
     </script>
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
-
-    <script type="module" src="/js/app-v3.js"></script>
+    <script type="module" src="/js/app.js?v=chat-v2"></script>
 
 </body>
 
