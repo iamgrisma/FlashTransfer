@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashare - Instant P2P File Sharing</title>
+    <meta name="description" content="Share files and folders directly between browsers. No servers, no limits.">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .file-item {
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 20px rgba(102, 126, 234, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 30px rgba(102, 126, 234, 0.8);
+            }
+        }
+
+        .connecting {
+            animation: pulse-glow 2s infinite;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white py-6 shadow-lg">
+        <div class="container mx-auto px-4">
+            <h1 class="text-3xl font-bold">⚡ Flashare</h1>
+            <p class="text-gray-100 text-sm mt-1">Instant P2P File Sharing</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8 max-w-4xl">
+
+        <!-- Not Connected State -->
+        <div id="not-connected" class="space-y-6">
+
+            <!-- File Selection -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">📁 Select Files or Folders</h2>
+
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-500 transition-colors cursor-pointer"
+                    id="dropzone">
+                    <input type="file" id="fileInput" multiple webkitdirectory directory class="hidden">
+                    <input type="file" id="fileInputFiles" multiple class="hidden">
+
+                    <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" stroke="currentColor" fill="none"
+                        viewBox="0 0 48 48">
+                        <path
+                            d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+
+                    <p class="text-lg font-medium text-gray-700 mb-2">Drag & drop files or folders here</p>
+                    <p class="text-sm text-gray-500 mb-4">or click to browse</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button onclick="document.getElementById('fileInputFiles').click()"
+                            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                            Select Files
+                        </button>
+                        <button onclick="document.getElementById('fileInput').click()"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            Select Folder
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Selected Files Preview -->
+                <div id="selectedFiles" class="mt-4 space-y-2 hidden">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-semibold text-gray-700">Selected: <span id="fileCount">0</span> files</h3>
+                        <button onclick="clearFiles()" class="text-sm text-red-600 hover:text-red-700">Clear
+                            All</button>
+                    </div>
+                    <div id="fileList" class="max-h-48 overflow-y-auto space-y-1"></div>
+                </div>
+            </div>
+
+            <!-- Connection Options -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">🔗 Connect</h2>
+
+                <div class="space-y-4">
+                    <!-- Create Link -->
+                    <button id="createBtn" onclick="createConnection()"
+                        class="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        Create Share Link
+                    </button>
+
+                    <!-- Or Divider -->
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-gray-300"></div>
+                        </div>
+                        <div class="relative flex justify-center text-sm">
+                            <span class="px-2 bg-white text-gray-500">or</span>
+                        </div>
+                    </div>
+
+                    <!-- Join Connection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Enter code or paste link</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="joinInput" placeholder="abc12 or full URL"
+                                class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                onkeypress="if(event.key==='Enter') joinConnection()">
+                            <button onclick="joinConnection()"
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                Join
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connected State -->
+        <div id="connected" class="hidden space-y-6">
+
+            <!-- Connection Info -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-semibold">✓ Connected</h2>
+                        <p class="text-sm text-gray-600">Share this link with your peer:</p>
+                    </div>
+                    <button onclick="disconnect()"
+                        class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm">
+                        Disconnect
+                    </button>
+                </div>
+
+                <div class="flex gap-2">
+                    <input type="text" id="shareLink" readonly
+                        class="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm">
+                    <button onclick="copyShareLink()"
+                        class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm">
+                        Copy
+                    </button>
+                </div>
+            </div>
+
+            <!-- Transfer Area -->
+            <div class="grid md:grid-cols-2 gap-6">
+
+                <!-- Send Section -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold mb-4">📤 Send</h3>
+                    <div id="sendList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+                    <button onclick="sendAllFiles()" id="sendAllBtn"
+                        class="w-full mt-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50">
+                        Send All
+                    </button>
+                </div>
+
+                <!-- Receive Section -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold mb-4">📥 Receive</h3>
+                    <div id="receiveList" class="space-y-2 max-h-96 overflow-y-auto">
+                        <p class="text-gray-500 text-sm">Waiting for files...</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Loading/Status -->
+        <div id="status" class="hidden">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                <div
+                    class="animate-spin inline-block w-6 h-6 border-4 border-current border-t-transparent text-blue-600 rounded-full mb-2">
+                </div>
+                <p id="statusText" class="text-blue-800 font-medium"></p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="fixed bottom-4 right-4 hidden">
+        <div class="bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg">
+            <p id="toastText"></p>
+        </div>
+    </div>
+
+    <script type="module" src="/js/app.js"></script>
+
+</body>
+
+</html>
