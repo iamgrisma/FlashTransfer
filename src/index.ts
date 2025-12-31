@@ -31,7 +31,10 @@ export default {
         // FRONTEND: Static Files
         // ======================
 
-        return env.ASSETS.fetch(request)
+        let response = await env.ASSETS.fetch(request)
+        response = new Response(response.body, response)
+        response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        return response
     }
 }
 
@@ -101,7 +104,8 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
 
             return jsonResponse({
                 code,
-                offer: JSON.parse(data.p2p_offer)
+                offer: JSON.parse(data.p2p_offer),
+                p2p_answer: data.p2p_answer // Return answer for polling
             }, 200, corsHeaders)
 
         } catch (error) {
