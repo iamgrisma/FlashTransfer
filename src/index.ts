@@ -1,13 +1,7 @@
 // Flashare - Single Cloudflare Worker
 // Handles BOTH frontend (static files) AND backend (API)
 
-import { createClient } from '@supabase/supabase-js'
-
-interface Env {
-    SUPABASE_URL: string
-    SUPABASE_ANON_KEY: string
-    ASSETS: Fetcher
-}
+import { useDB, Env } from './db'
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
@@ -52,7 +46,7 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
                 return jsonResponse({ error: 'Invalid code' }, 400, corsHeaders)
             }
 
-            const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY)
+            const supabase = useDB(env)
             const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
             const { data, error } = await supabase
@@ -88,7 +82,7 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
                 return jsonResponse({ error: 'Invalid code' }, 400, corsHeaders)
             }
 
-            const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY)
+            const supabase = useDB(env)
 
             const { data, error } = await supabase
                 .from('fileshare')
@@ -121,7 +115,7 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
         try {
             const { code, answer } = await request.json() as { code: string, answer: any }
 
-            const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY)
+            const supabase = useDB(env)
 
             const { error } = await supabase
                 .from('fileshare')

@@ -11,7 +11,7 @@ const state = {
 
 // Import modules
 import { initP2P, createOffer, joinOffer, sendFile, cleanup } from './p2p.js'
-import { API_URL } from './config.js'
+import { createSession, getSession } from './api.js'
 import { showToast, showStatus, hideStatus, formatBytes } from './utils.js'
 
 // Initialize
@@ -109,8 +109,11 @@ window.createConnection = async () => {
             setupPeerListeners(peer)
         })
 
-        // Send offer to database
-        await sendOfferToServer(peerId, state.peer)
+        // Wait for signal data
+        const offer = await new Promise(resolve => state.peer.once('signal', resolve))
+
+        // Send to server
+        await createSession(offer, state.connectionCode)
 
         hideStatus()
         showConnected()
@@ -137,7 +140,7 @@ window.joinConnection = async () => {
 
     try {
         // Get offer from server
-        const offerData = await getOfferFromServer(code)
+        const offerData = await getSession(code)
 
         // Setup peer
         state.peer = await initP2P(false, (peer) => {
@@ -409,24 +412,6 @@ window.disconnect = () => {
     showToast('Disconnected')
 }
 
-// API calls
-async function sendOfferToServer(peerId, peer) {
-    const offer = await new Promise((resolve) => {
-        peer.once('signal', resolve)
-    })
-
-    const response = await fetch(`${API_URL}/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ offer, code: state.connectionCode })
-    })
-
-    if (!response.ok) throw new Error('Failed to create session')
-    return response.json()
-}
-
-async function getOfferFromServer(code) {
-    const response = await fetch(`${API_URL}/join/${code}`)
-    if (!response.ok) throw new Error('Session not found')
-    return response.json()
-}
+// API calls moved to api.js
+// async function sendOfferToServer...
+// async function getOfferFromServer...

@@ -108,13 +108,6 @@ function generateCode() {
 }
 
 async function sendAnswerToServer(code, answer) {
-    const { API_URL } = await import('./config.js')
-    const response = await fetch(`${API_URL}/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, answer })
-    })
-
-    if (!response.ok) throw new Error('Failed to send answer')
-    return response.json()
+    const { sendSignalAnswer } = await import('./api.js')
+    return sendSignalAnswer(code, answer)
 }

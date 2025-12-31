@@ -3,8 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 # Serve static files from public/ directory
-[site]
-bucket = "./public"
+[assets]
+directory = "./public"
+binding = "ASSETS"
 
-# Secrets - set with: wrangler secret put SUPABASE_URL
-# wrangler secret put SUPABASE_ANON_KEY
