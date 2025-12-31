@@ -324,7 +324,9 @@
     </div>
 
     <!-- Polyfills & Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/buffer/6.0.3/buffer.min.js"></script>
     <script>
+        window.Buffer = window.buffer.Buffer;
         window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); } };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
