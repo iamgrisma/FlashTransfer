@@ -135,16 +135,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                 : data.toString();
 
             if (typeof textData === 'string' && textData.trim().startsWith('{')) {
-                const parsed = JSON.parse(textData);
-                if (parsed && parsed.type && [
-                    'fileDetails',
-                    'transferStart',
-                    'transferComplete',
-                    'requestFileList',
-                    'requestFile'
-                ].includes(parsed.type)) {
-                    signal = parsed;
-                }
+                signal = JSON.parse(textData);
             }
         } catch (err) {
             // Not a JSON signal
@@ -395,10 +386,10 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                 {/* Sending Section */}
                 <div className="space-y-4">
                     <h3 className="font-medium flex items-center"><Upload className="mr-2 h-5 w-5" />Outgoing Files ({outgoingFiles.length})</h3>
-                     <FileUpload onFileSelect={handleFileSelect} isSessionActive={true} />
+                    <FileUpload onFileSelect={handleFileSelect} isSessionActive={true} />
                     {outgoingFiles.length > 0 && (
                         <div className="space-y-3">
-                           <div className="flex justify-end">
+                            <div className="flex justify-end">
                                 <Button
                                     onClick={sendSelected}
                                     size="sm"
@@ -412,7 +403,7 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                                     const progress = sendProgress[file.name] || 0;
                                     return (
                                         <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg bg-primary/10 justify-end">
-                                             <div className="flex-1 min-w-0 order-2 text-right">
+                                            <div className="flex-1 min-w-0 order-2 text-right">
                                                 <p className="font-medium truncate text-sm">{file.name}</p>
                                                 <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
                                                 {progress > 0 && progress < 100 && (
