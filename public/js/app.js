@@ -88,6 +88,25 @@ window.clearFiles = () => {
     document.getElementById('fileInput').value = ''
     document.getElementById('fileInputFiles').value = ''
     document.getElementById('createBtn').disabled = true
+    document.getElementById('createBtn').disabled = true
+}
+
+window.handleAddMoreFiles = (input) => {
+    const files = Array.from(input.files)
+    if (files.length > 0) {
+        state.selectedFiles.push(...files)
+
+        // If connected, update UI and notify peer
+        if (state.isConnected) {
+            displaySendableFiles()
+            sendFileList() // This sends the updated list to peer
+            showToast(`Added ${files.length} files`)
+        } else {
+            // If not connected yet (rare case in this view but possible if disconnected)
+            updateFileList()
+        }
+    }
+    input.value = '' // Reset
 }
 
 // Create connection
@@ -178,9 +197,10 @@ function checkURLForCode() {
 
     if (hash && hash.length === 5) {
         document.getElementById('joinInput').value = hash
-        // Auto-join could be enabled here
+        joinConnection() // Auto-join
     } else if (pathCode && pathCode.length === 5) {
         document.getElementById('joinInput').value = pathCode
+        joinConnection() // Auto-join
     }
 }
 

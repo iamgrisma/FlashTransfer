@@ -177,7 +177,17 @@
 
                 <!-- Send Section -->
                 <div class="bg-white rounded-lg shadow-md p-6">
-                    <h3 class="text-lg font-semibold mb-4">📤 Send</h3>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold">📤 Send</h3>
+                        <div class="relative">
+                            <input type="file" id="addMoreInput" multiple class="hidden"
+                                onchange="handleAddMoreFiles(this)">
+                            <button onclick="document.getElementById('addMoreInput').click()"
+                                class="text-sm text-purple-600 hover:text-purple-700 font-medium">
+                                + Add Files
+                            </button>
+                        </div>
+                    </div>
                     <div id="sendList" class="space-y-2 max-h-96 overflow-y-auto"></div>
                     <button onclick="sendAllFiles()" id="sendAllBtn"
                         class="w-full mt-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50">
