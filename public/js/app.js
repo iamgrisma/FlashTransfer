@@ -116,7 +116,7 @@ window.createConnection = async () => {
         return
     }
 
-    showStatus('Creating connection...')
+    showStatus(spinner('Creating connection...'))
 
     try {
         const { code, peerId } = await createOffer(state.selectedFiles)
@@ -135,7 +135,32 @@ window.createConnection = async () => {
         await createSession(offer, state.connectionCode)
 
         hideStatus()
-        showStatus('Waiting for peer to join...<br>Share the code: ' + state.connectionCode)
+
+        const shareLink = window.location.origin + '/#' + state.connectionCode
+        showStatus(`
+            <div class="flex flex-col items-center gap-6 py-4">
+                <div class="animate-spin inline-block w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full"></div>
+                
+                <!-- Code Section -->
+                <div class="bg-white p-6 rounded-xl shadow border border-gray-100 w-full max-w-md text-center">
+                    <p class="text-xs text-gray-500 mb-2 uppercase tracking-widest font-bold">One-Time Code</p>
+                    <div class="flex items-center gap-2 justify-center mb-4">
+                        <code class="text-4xl font-mono font-bold text-gray-800 tracking-widest bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">${state.connectionCode}</code>
+                    </div>
+                    <p class="text-sm text-gray-400 mb-4">Share this code with your peer</p>
+                    
+                    <div class="relative flex items-center gap-2 border-t border-gray-100 pt-4">
+                        <input type="text" value="${shareLink}" readonly class="flex-1 bg-gray-50 border border-gray-200 text-gray-600 text-sm rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <button onclick="navigator.clipboard.writeText('${shareLink}'); showToast('Link copied!')" 
+                            class="bg-purple-600 text-white px-4 py-2.5 rounded-lg hover:bg-purple-700 font-medium text-sm transition shadow-sm whitespace-nowrap">
+                            Copy Link
+                        </button>
+                    </div>
+                </div>
+                
+                 <div class="text-sm text-gray-400 animate-pulse">Waiting for peer to join...</div>
+            </div>
+        `)
 
         // Start polling for answer
         waitForAnswer(state.connectionCode)
@@ -159,7 +184,7 @@ async function waitForAnswer(code) {
             if (data && data.p2p_answer) {
                 // We got an answer!
                 clearInterval(pollInterval)
-                showStatus('Connecting P2P...')
+                showStatus(spinner('Connecting P2P...'))
                 const answer = JSON.parse(data.p2p_answer)
                 state.peer.signal(answer)
             }
@@ -180,7 +205,7 @@ window.joinConnection = async () => {
     // Extract code from URL or use as-is
     const code = extractCode(input)
 
-    showStatus('Joining connection...')
+    showStatus(spinner('Joining connection...'))
 
     try {
         // Get offer from server
@@ -204,7 +229,7 @@ window.joinConnection = async () => {
         state.isHost = false
 
         hideStatus()
-        showStatus('Connecting to peer...')
+        showStatus(spinner('Connecting to peer...'))
         // Connection will complete when peer.on('connect') fires
 
     } catch (error) {
@@ -488,3 +513,13 @@ function appendChat(user, text, classes) {
 // API calls moved to api.js
 // async function sendOfferToServer...
 // async function getOfferFromServer...
+
+// Helper for spinner UI
+function spinner(text) {
+    return `
+        <div class="bg-white border border-gray-100 rounded-xl p-6 text-center shadow-sm w-full max-w-sm mx-auto">
+            <div class="animate-spin inline-block w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mb-3"></div>
+            <p class="text-gray-700 font-medium text-lg">${text}</p>
+        </div>
+    `
+}
