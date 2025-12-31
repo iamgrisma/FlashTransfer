@@ -18,6 +18,7 @@ import { showToast, showStatus, hideStatus, formatBytes } from './utils.js'
 window.addEventListener('DOMContentLoaded', () => {
     setupEventListeners()
     checkURLForCode()
+    console.log('Flashare: Premium UI Loaded v2')
 })
 
 function setupEventListeners() {
@@ -190,6 +191,17 @@ async function waitForAnswer(code) {
             }
         } catch (e) {
             console.error('Polling error:', e)
+            // If it's a critical error (like signal failure), show it
+            if (e.message.includes('signal') || e.message.includes('JSON')) {
+                clearInterval(pollInterval)
+                showStatus(`
+                    <div class="bg-red-50 p-6 rounded-xl border border-red-200 text-center">
+                        <p class="text-red-600 font-bold mb-2">Connection Error</p>
+                        <p class="text-sm text-red-800">${e.message}</p>
+                        <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm">Retry</button>
+                    </div>
+                 `)
+            }
         }
     }, 2000) // Poll every 2s
 }
