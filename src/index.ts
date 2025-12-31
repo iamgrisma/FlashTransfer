@@ -34,6 +34,30 @@ export default {
         let response = await env.ASSETS.fetch(request)
         response = new Response(response.body, response)
         response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+
+        // Dynamic Cache Busting for HTML
+        if (url.pathname === '/' || url.pathname.endsWith('index.html')) {
+            const timestamp = Date.now()
+            return new HTMLRewriter()
+                .on('script', {
+                    element(element) {
+                        const src = element.getAttribute('src')
+                        if (src && src.startsWith('/')) {
+                            element.setAttribute('src', `${src}?t=${timestamp}`)
+                        }
+                    }
+                })
+                .on('link', {
+                    element(element) {
+                        const href = element.getAttribute('href')
+                        if (href && element.getAttribute('rel') === 'stylesheet' && href.startsWith('/')) {
+                            element.setAttribute('href', `${href}?t=${timestamp}`)
+                        }
+                    }
+                })
+                .transform(response)
+        }
+
         return response
     }
 }
