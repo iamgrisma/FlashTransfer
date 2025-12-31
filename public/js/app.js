@@ -197,8 +197,15 @@ window.joinConnection = async () => {
         state.connectionCode = code
         state.isHost = false
 
+        // Join with offer
+        await joinOffer(state.peer, offerData)
+
+        state.connectionCode = code
+        state.isHost = false
+
         hideStatus()
-        showConnected()
+        showStatus('Connecting to peer...')
+        // Connection will complete when peer.on('connect') fires
 
     } catch (error) {
         hideStatus()
