@@ -123,6 +123,7 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
                 .eq('short_code', code)
 
             if (error) {
+                console.error('Supabase Update Error:', error)
                 return jsonResponse({ error: 'Failed to save answer' }, 500, corsHeaders)
             }
 
