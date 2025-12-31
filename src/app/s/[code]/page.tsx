@@ -1,5 +1,6 @@
-
 'use client';
+
+export const runtime = 'edge';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
@@ -158,10 +159,8 @@ export default function DownloadPage() {
 
   const initializeConnection = useCallback(async (code: string) => {
     try {
-      // Use Cloudflare Worker endpoint (update to production URL when deployed)
-      const workerUrl = 'http://127.0.0.1:8787';
-
-      const response = await fetch(workerUrl, {
+      // Use Next.js API route instead of separate worker
+      const response = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ obfuscatedCode: code }),

@@ -2,7 +2,7 @@
 "use client";
 
 import { useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent } from 'react';
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import { UploadCloud, PlusCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -67,18 +67,30 @@ export default function FileUpload({ onFileSelect, isSessionActive = false }: Fi
     fileInputRef.current?.click();
   };
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <Card
       className={cn(
-        'transition-all duration-300 border-2 shadow-lg hover:shadow-xl hover:border-primary/50',
+        'transition-all duration-300 border-2 shadow-lg hover:shadow-xl hover:border-primary/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         isDragging ? 'border-primary ring-2 ring-primary/50 bg-primary/5' : 'border-dashed'
       )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="button"
+      aria-label={isSessionActive ? "Add more files" : "Upload files"}
     >
-      <CardContent className="p-10 text-center cursor-pointer" onClick={handleClick}>
+      <CardContent className="p-10 text-center">
         <div className="flex flex-col items-center justify-center space-y-4">
           <div className="p-4 bg-primary/10 rounded-full border-8 border-primary/5">
             {isSessionActive ? (
@@ -100,10 +112,10 @@ export default function FileUpload({ onFileSelect, isSessionActive = false }: Fi
           className="hidden"
           onChange={handleInputChange}
           multiple
+          tabIndex={-1}
+          aria-hidden="true"
         />
       </CardContent>
     </Card>
   );
 }
-
-    

@@ -21,8 +21,8 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@400;700&display=swap" rel="stylesheet" />
       </head>
-      <body className="font-body antialiased">
-        <header className="absolute top-0 left-0 w-full p-4 md:p-6 z-10">
+      <body className="font-body antialiased flex flex-col min-h-screen" suppressHydrationWarning>
+        <header className="w-full p-4 md:p-6 border-b">
           <div className="container mx-auto flex items-center justify-between">
             <a href="/" className="flex items-center gap-3">
               <Send className="text-primary h-7 w-7" />
