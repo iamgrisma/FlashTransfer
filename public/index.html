@@ -4,7 +4,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flashare - Instant P2P File Sharing</title>
+    <title>FlashShare - Instant Unlimited P2P File Sharing</title>
+    <meta name="description"
+        content="Share files of any size directly between devices. No cloud storage, no limits, end-to-end encrypted. The fastest way to transfer data.">
+    <meta name="keywords"
+        content="p2p file transfer, unlimited file sharing, webrtc, secure file share, instant file transfer, flashshare">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://flashare.iamgrisma.workers.dev/">
+    <meta property="og:title" content="FlashShare - Instant Unlimited File Sharing">
+    <meta property="og:description" content="Share files directly device-to-device. No limits. No Cloud.">
+    <meta property="og:image" content="https://flashare.iamgrisma.workers.dev/og-image.jpg">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://flashare.iamgrisma.workers.dev/">
+    <meta property="twitter:title" content="FlashShare - Instant Unlimited File Sharing">
+    <meta property="twitter:description" content="Share files directly device-to-device. No limits. No Cloud.">
     <meta name="description" content="Share files and folders directly between browsers. No servers, no limits.">
 
     <!-- Tailwind CSS (Production) -->
@@ -76,55 +93,101 @@
     <!-- Main Container -->
     <main class="container mx-auto px-4 py-8 pt-24 max-w-3xl min-h-[calc(100vh-80px)] flex flex-col justify-center">
 
-        <!-- VIEW 1: LANDING (Split Choice) -->
-        <div id="view-landing" class="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+        <!-- VIEW 1: LANDING (SEO Optimized Product Page) -->
+        <div id="view-landing" class="animate-fade-in space-y-16">
 
-            <!-- Send Card -->
-            <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
-                onclick="document.getElementById('fileInputInit').click()">
-                <div
-                    class="absolute top-0 left-0 w-full h-1 bg-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
-                </div>
-                <div class="p-8 flex flex-col items-center text-center h-full justify-center py-16">
+            <!-- Hero Section -->
+            <div class="text-center space-y-4 max-w-2xl mx-auto">
+                <h2 class="text-4xl md:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
+                    Share Files Instantly. <br>
+                    <span class="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600">No
+                        Limits. No Cloud.</span>
+                </h2>
+                <p class="text-lg text-gray-600">
+                    The fastest way to send photos, videos, or documents anywhere. Directly device-to-device.
+                </p>
+            </div>
+
+            <!-- Main CTA Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                <!-- Send Card -->
+                <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
+                    onclick="document.getElementById('fileInputInit').click()">
                     <div
-                        class="w-20 h-20 bg-purple-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                        <svg class="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
-                            </path>
-                        </svg>
+                        class="absolute top-0 left-0 w-full h-1 bg-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
                     </div>
-                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Send Files</h2>
-                    <p class="text-gray-500">Create a secure link to share files directly with a peer.</p>
-                    <button
-                        class="mt-8 px-8 py-3 bg-purple-600 text-white rounded-xl font-medium shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all transform group-hover:-translate-y-1">Start
-                        Transfer</button>
-                    <!-- Hidden Input for initial trigger -->
-                    <input type="file" id="fileInputInit" multiple class="hidden">
+                    <div class="p-8 flex flex-col items-center text-center h-full justify-center py-12">
+                        <div
+                            class="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                            <svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                                </path>
+                            </svg>
+                        </div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Send</h3>
+                        <p class="text-gray-500 text-sm mb-6">Create a secure link to share files.</p>
+                        <button
+                            class="px-6 py-2 bg-purple-600 text-white rounded-lg font-medium shadow-md shadow-purple-200 hover:bg-purple-700 transition-all">Start
+                            Transfer</button>
+                        <input type="file" id="fileInputInit" multiple class="hidden">
+                    </div>
+                </div>
+
+                <!-- Receive Card -->
+                <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
+                    onclick="showReceiveView()">
+                    <div
+                        class="absolute top-0 left-0 w-full h-1 bg-indigo-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
+                    </div>
+                    <div class="p-8 flex flex-col items-center text-center h-full justify-center py-12">
+                        <div
+                            class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                            <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Receive</h3>
+                        <p class="text-gray-500 text-sm mb-6">Enter a code to join a session.</p>
+                        <button
+                            class="px-6 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg font-medium hover:bg-indigo-50 transition-all">Enter
+                            Code</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- Receive Card -->
-            <div class="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 cursor-pointer relative"
-                onclick="showReceiveView()">
-                <div
-                    class="absolute top-0 left-0 w-full h-1 bg-indigo-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300">
+            <!-- SEO Features Grid -->
+            <div class="grid md:grid-cols-3 gap-8 py-12 border-t border-gray-200">
+                <div class="text-center">
+                    <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mx-auto mb-4 text-2xl">
+                        🚀</div>
+                    <h3 class="font-bold text-gray-900 mb-2">Blazing Fast</h3>
+                    <p class="text-sm text-gray-500 leading-relaxed">Direct P2P technology means files travel solely
+                        between devices. No middleman servers slowing you down.</p>
                 </div>
-                <div class="p-8 flex flex-col items-center text-center h-full justify-center py-16">
+                <div class="text-center">
                     <div
-                        class="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                        <svg class="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                        </svg>
-                    </div>
-                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Receive Files</h2>
-                    <p class="text-gray-500">Enter a code to join an existing transfer session.</p>
-                    <button
-                        class="mt-8 px-8 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-xl font-medium hover:bg-indigo-50 transition-all">Enter
-                        Code</button>
+                        class="bg-green-50 w-12 h-12 rounded-lg flex items-center justify-center mx-auto mb-4 text-2xl">
+                        🔒</div>
+                    <h3 class="font-bold text-gray-900 mb-2">End-to-End Encrypted</h3>
+                    <p class="text-sm text-gray-500 leading-relaxed">Data is encrypted via WebRTC DTLS. Even we can't
+                        see your files. Secure by design.</p>
+                </div>
+                <div class="text-center">
+                    <div
+                        class="bg-orange-50 w-12 h-12 rounded-lg flex items-center justify-center mx-auto mb-4 text-2xl">
+                        ∞</div>
+                    <h3 class="font-bold text-gray-900 mb-2">Unlimited Size</h3>
+                    <p class="text-sm text-gray-500 leading-relaxed">Share 1GB or 100GB. Since we don't store your
+                        files, there are no storage limits.</p>
                 </div>
             </div>
+
+            <!-- Footer -->
+            <footer class="text-center text-gray-400 text-sm pb-8">
+                &copy; 2024 FlashShare. Built for speed.
+            </footer>
         </div>
 
         <!-- VIEW 2: RECEIVE CODE ENTRY -->
@@ -261,9 +324,7 @@
     </div>
 
     <!-- Polyfills & Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
     <script>
-        window.Buffer = window.buffer.Buffer;
         window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); } };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
