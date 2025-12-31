@@ -135,13 +135,38 @@ window.createConnection = async () => {
         await createSession(offer, state.connectionCode)
 
         hideStatus()
-        showConnected()
+        showStatus('Waiting for peer to join...<br>Share the code: ' + state.connectionCode)
+
+        // Start polling for answer
+        waitForAnswer(state.connectionCode)
 
     } catch (error) {
         hideStatus()
         showToast('Failed to create connection: ' + error.message)
         console.error(error)
     }
+}
+
+async function waitForAnswer(code) {
+    const pollInterval = setInterval(async () => {
+        if (!state.peer || state.isConnected) {
+            clearInterval(pollInterval)
+            return
+        }
+
+        try {
+            const data = await getSession(code)
+            if (data && data.p2p_answer) {
+                // We got an answer!
+                clearInterval(pollInterval)
+                showStatus('Connecting P2P...')
+                const answer = JSON.parse(data.p2p_answer)
+                state.peer.signal(answer)
+            }
+        } catch (e) {
+            console.error('Polling error:', e)
+        }
+    }, 2000) // Poll every 2s
 }
 
 // Join connection
@@ -245,6 +270,9 @@ function handlePeerData(data) {
                 break
             case 'fileComplete':
                 completeFileReceive(message.fileName)
+                break
+            case 'chat':
+                appendChat('Peer', message.text, 'text-gray-800')
                 break
             default:
                 console.log('Unknown message type:', message.type)
@@ -430,6 +458,24 @@ window.disconnect = () => {
     document.getElementById('connected').classList.add('hidden')
 
     showToast('Disconnected')
+}
+
+window.sendChatMessage = () => {
+    const input = document.getElementById('chatInput')
+    const text = input.value.trim()
+    if (!text || !state.peer) return
+
+    state.peer.send(JSON.stringify({ type: 'chat', text }))
+    appendChat('You', text, 'text-purple-600 font-medium')
+    input.value = ''
+}
+
+function appendChat(user, text, classes) {
+    const log = document.getElementById('chatLog')
+    const div = document.createElement('div')
+    div.innerHTML = `<span class="${classes}">${user}:</span> ${text}`
+    log.appendChild(div)
+    log.scrollTop = log.scrollHeight
 }
 
 // API calls moved to api.js

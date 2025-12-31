@@ -86,7 +86,7 @@ async function handleAPI(url: URL, request: Request, env: Env, corsHeaders: Reco
 
             const { data, error } = await supabase
                 .from('fileshare')
-                .select('id, p2p_offer, expires_at')
+                .select('id, p2p_offer, p2p_answer, expires_at')
                 .eq('short_code', code)
                 .single()
 
