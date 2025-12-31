@@ -1,11 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Peer from 'simple-peer';
 import FileUpload from '@/components/file-upload';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -41,12 +40,9 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
     } | null>(null);
     const downloadQueueRef = useRef<string[]>([]);
 
-    // Initial sync and handshake
     useEffect(() => {
         if (peer && !peer.destroyed) {
             if (initialFiles.length > 0) {
-                // Sender logic: Wait for request or just send update
-                // We'll send update immediately just in case, but also listen for requests
                 const fileDetails: FileDetails[] = initialFiles.map(f => ({
                     name: f.name,
                     size: f.size,
@@ -64,7 +60,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
             }
 
             if (!isInitiator) {
-                // Receiver logic: Request file list immediately on connection
                 setTimeout(() => {
                     try {
                         console.log('Requesting file list from host...');
@@ -77,9 +72,8 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [peer, initialFiles, isInitiator]);
 
-    // Send file to peer
     const sendFile = useCallback((file: File) => {
-        const chunkSize = 256 * 1024; // 256KB chunks (faster)
+        const chunkSize = 256 * 1024;
         let offset = 0;
 
         if (!peer || peer.destroyed) {
@@ -88,7 +82,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
 
         try {
-            // Send transfer start signal
             peer.send(JSON.stringify({
                 type: 'transferStart',
                 payload: { fileName: file.name, fileSize: file.size, fileType: file.type }
@@ -122,7 +115,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
 
             const readNextChunk = () => {
                 if (offset >= file.size || peer.destroyed) return;
-                // Reading slice is fast, no need to over-optimize unless using SharedArrayBuffer
                 const slice = file.slice(offset, offset + chunkSize);
                 reader.readAsArrayBuffer(slice);
             };
@@ -134,21 +126,16 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [peer, toast]);
 
-    // Handle incoming data from peer
     const handlePeerData = useCallback((data: any) => {
         let signal: any = null;
 
-        // 1. First attempt to parse as a JSON signal (whether string or binary)
         try {
-            // If data is binary, decode it first
             const textData = (data instanceof ArrayBuffer || data instanceof Uint8Array)
                 ? new TextDecoder().decode(data)
                 : data.toString();
 
-            // Optimization: only attempt JSON parse if it looks like a JSON object
             if (typeof textData === 'string' && textData.trim().startsWith('{')) {
                 const parsed = JSON.parse(textData);
-                // Validate it's one of our expected control messages
                 if (parsed && parsed.type && [
                     'fileDetails',
                     'transferStart',
@@ -160,22 +147,19 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                 }
             }
         } catch (err) {
-            // Not a valid JSON signal, proceed to binary handling
+            // Not a JSON signal
         }
 
-        // 2. If it's a valid signal, handle it (and do NOT treat as file chunk)
         if (signal) {
             const { type, payload } = signal;
 
             switch (type) {
                 case 'fileDetails':
-                    // Peer is offering files
                     const newFiles: ScannedFile[] = payload.map((f: FileDetails) => ({
                         ...f,
                         scanStatus: 'unscanned' as const
                     }));
                     setIncomingFiles(prev => {
-                        // Avoid duplicates
                         const existingNames = new Set(prev.map(p => p.name));
                         const uniqueNew = newFiles.filter(f => !existingNames.has(f.name));
                         return [...prev, ...uniqueNew];
@@ -206,7 +190,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                     break;
 
                 case 'requestFileList':
-                    // Peer asked for list of available files
                     const fileList: FileDetails[] = outgoingFiles.map(f => ({
                         name: f.name,
                         size: f.size,
@@ -221,33 +204,21 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                     break;
 
                 case 'requestFile':
-                    // Peer is requesting a file we offered
                     const fileToSend = outgoingFiles.find(f => f.name === payload.fileName);
                     if (fileToSend) {
                         sendFile(fileToSend);
                     }
                     break;
             }
-            return; // We handled it as a signal
+            return;
         }
 
         if (currentTransferRef.current) {
-            // Ensure we have a Uint8Array
             let chunk: Uint8Array | null = null;
             if (data instanceof Uint8Array) {
                 chunk = data;
             } else if (data instanceof ArrayBuffer) {
                 chunk = new Uint8Array(data);
-            } else {
-                // Fallback for strings that aren't signals but supposed to be file data? 
-                // This shouldn't happen with our FileReader, but best to be safe
-                try {
-                    // For string data that isn't JSON, we might treat as binary?
-                    // But typically text file content comes as ArrayBuffer if we read it as such.
-                    // If simple-peer gave us a string, and it wasn't JSON...
-                    // Let's assume binary-as-string? No, simple-peer shouldn't do that if we sent ArrayBuffer.
-                    return;
-                } catch (e) { return; }
             }
 
             if (chunk) {
@@ -261,11 +232,9 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [incomingFiles, outgoingFiles, sendFile, toast]);
 
-    // Setup peer event listeners
     useEffect(() => {
         if (peer && !peer.destroyed) {
             peer.on('data', handlePeerData);
-
             return () => {
                 if (peer && !peer.destroyed) {
                     peer.off('data', handlePeerData);
@@ -274,7 +243,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [peer, handlePeerData]);
 
-    // Download file
     const downloadFile = useCallback((
         fileName: string,
         chunks: any[],
@@ -301,7 +269,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [toast]);
 
-    // Process download queue
     const processDownloadQueue = useCallback(() => {
         if (peer && !peer.destroyed && peer.connected && downloadQueueRef.current.length > 0) {
             const nextFile = downloadQueueRef.current[0];
@@ -312,12 +279,10 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [peer]);
 
-    // Handle file upload
     const handleFileSelect = useCallback((selectedFiles: FileList) => {
         const newFiles = Array.from(selectedFiles);
         setOutgoingFiles(prev => [...prev, ...newFiles]);
 
-        // Notify peer about new files
         if (peer && peer.connected) {
             const fileDetails: FileDetails[] = newFiles.map(f => ({
                 name: f.name,
@@ -331,16 +296,14 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         }
     }, [peer]);
 
-    // Send selected outgoing files
     const sendSelected = useCallback(() => {
         outgoingFiles.forEach(file => {
-            if (!sendProgress[file.name] || sendProgress[file.name] === 100) {
+            if (!sendProgress[file.name] || sendProgress[file.name] < 100) {
                 sendFile(file);
             }
         });
     }, [outgoingFiles, sendProgress, sendFile]);
 
-    // Download selected incoming files
     const downloadSelected = useCallback(() => {
         const filesToDownload = selectedIncoming.filter(
             name => !downloadQueueRef.current.includes(name)
@@ -349,7 +312,6 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
         processDownloadQueue();
     }, [selectedIncoming, processDownloadQueue]);
 
-    // Remove outgoing file
     const removeOutgoingFile = (fileName: string) => {
         setOutgoingFiles(prev => prev.filter(f => f.name !== fileName));
         setSendProgress(prev => {
@@ -367,127 +329,120 @@ export default function TransferPanel({ peer, connectionCode, isInitiator, initi
                     <Badge variant="outline" className="font-mono">{connectionCode}</Badge>
                 </div>
             </CardHeader>
-            <CardContent>
-                <Tabs defaultValue={isInitiator ? "send" : "receive"} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="send">
-                            <Upload className="mr-2 h-4 w-4" />
-                            Sending ({outgoingFiles.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="receive">
-                            <Download className="mr-2 h-4 w-4" />
-                            Receiving ({incomingFiles.length})
-                        </TabsTrigger>
-                    </TabsList>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Receiving Section */}
+                <div className="space-y-4">
+                    <h3 className="font-medium flex items-center"><Download className="mr-2 h-5 w-5" />Incoming Files ({incomingFiles.length})</h3>
+                    {incomingFiles.length === 0 ? (
+                        <div className="text-center p-8 text-muted-foreground border rounded-lg h-full flex flex-col justify-center">
+                            <Download className="mx-auto h-12 w-12 mb-2 opacity-50" />
+                            <p>No files available yet</p>
+                            <p className="text-sm">Waiting for peer to share files...</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="flex justify-end">
+                                <Button
+                                    onClick={downloadSelected}
+                                    disabled={selectedIncoming.length === 0}
+                                    size="sm"
+                                >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Download ({selectedIncoming.length})
+                                </Button>
+                            </div>
+                            <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                                {incomingFiles.map(file => {
+                                    const progress = receiveProgress[file.name] || 0;
+                                    const isSelected = selectedIncoming.includes(file.name);
 
-                    <TabsContent value="send" className="space-y-4 mt-4">
-                        <FileUpload onFileSelect={handleFileSelect} isSessionActive={true} />
-
-                        {outgoingFiles.length > 0 && (
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-medium">Files to Send</h3>
-                                </div>
-
-                                <div className="space-y-2 max-h-96 overflow-y-auto">
-                                    {outgoingFiles.map(file => {
-                                        const progress = sendProgress[file.name] || 0;
-                                        return (
-                                            <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg">
-                                                <FileIcon className="h-8 w-8 text-primary flex-shrink-0" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium truncate">{file.name}</p>
-                                                    <p className="text-sm text-muted-foreground">{formatBytes(file.size)}</p>
-                                                    {progress > 0 && progress < 100 && (
-                                                        <Progress value={progress} className="h-2 mt-1" />
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    {progress === 100 ? (
-                                                        <Check className="h-5 w-5 text-green-500" />
-                                                    ) : progress > 0 ? (
-                                                        <span className="text-sm font-medium text-primary">{Math.round(progress)}%</span>
-                                                    ) : (
-                                                        <Button
-                                                            size="icon"
-                                                            variant="ghost"
-                                                            onClick={() => removeOutgoingFile(file.name)}
-                                                            aria-label={`Remove ${file.name}`}
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    )}
-                                                </div>
+                                    return (
+                                        <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg bg-muted/20">
+                                            <Checkbox
+                                                checked={isSelected}
+                                                aria-label={`Select ${file.name} for download`}
+                                                onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                        setSelectedIncoming(prev => [...prev, file.name]);
+                                                    } else {
+                                                        setSelectedIncoming(prev => prev.filter(n => n !== file.name));
+                                                    }
+                                                }}
+                                            />
+                                            <FileIcon className="h-8 w-8 text-primary flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium truncate text-sm">{file.name}</p>
+                                                <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+                                                {progress > 0 && progress < 100 && (
+                                                    <Progress value={progress} className="h-2 mt-1" />
+                                                )}
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="receive" className="space-y-4 mt-4">
-                        {incomingFiles.length === 0 ? (
-                            <div className="text-center p-8 text-muted-foreground">
-                                <Download className="mx-auto h-12 w-12 mb-2 opacity-50" />
-                                <p>No files available yet</p>
-                                <p className="text-sm">Waiting for peer to share files...</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-medium">Available Files</h3>
-                                    <Button
-                                        onClick={downloadSelected}
-                                        disabled={selectedIncoming.length === 0}
-                                        size="sm"
-                                    >
-                                        <Download className="mr-2 h-4 w-4" />
-                                        Download Selected ({selectedIncoming.length})
-                                    </Button>
-                                </div>
-
-                                <div className="space-y-2 max-h-96 overflow-y-auto">
-                                    {incomingFiles.map(file => {
-                                        const progress = receiveProgress[file.name] || 0;
-                                        const isSelected = selectedIncoming.includes(file.name);
-
-                                        return (
-                                            <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg">
-                                                <Checkbox
-                                                    checked={isSelected}
-                                                    aria-label={`Select ${file.name} for download`}
-                                                    onCheckedChange={(checked) => {
-                                                        if (checked) {
-                                                            setSelectedIncoming(prev => [...prev, file.name]);
-                                                        } else {
-                                                            setSelectedIncoming(prev => prev.filter(n => n !== file.name));
-                                                        }
-                                                    }}
-                                                />
-                                                <FileIcon className="h-8 w-8 text-primary flex-shrink-0" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium truncate">{file.name}</p>
-                                                    <p className="text-sm text-muted-foreground">{formatBytes(file.size)}</p>
-                                                    {progress > 0 && progress < 100 && (
-                                                        <Progress value={progress} className="h-2 mt-1" />
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    {progress === 100 ? (
-                                                        <Check className="h-5 w-5 text-green-500" />
-                                                    ) : progress > 0 ? (
-                                                        <Loader className="h-5 w-5 animate-spin text-primary" />
-                                                    ) : null}
-                                                </div>
+                                            <div>
+                                                {progress === 100 ? (
+                                                    <Check className="h-5 w-5 text-green-500" />
+                                                ) : progress > 0 ? (
+                                                    <Loader className="h-5 w-5 animate-spin text-primary" />
+                                                ) : null}
                                             </div>
-                                        );
-                                    })}
-                                </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        )}
-                    </TabsContent>
-                </Tabs>
+                        </div>
+                    )}
+                </div>
+
+                {/* Sending Section */}
+                <div className="space-y-4">
+                    <h3 className="font-medium flex items-center"><Upload className="mr-2 h-5 w-5" />Outgoing Files ({outgoingFiles.length})</h3>
+                     <FileUpload onFileSelect={handleFileSelect} isSessionActive={true} />
+                    {outgoingFiles.length > 0 && (
+                        <div className="space-y-3">
+                           <div className="flex justify-end">
+                                <Button
+                                    onClick={sendSelected}
+                                    size="sm"
+                                >
+                                    <Upload className="mr-2 h-4 w-4" />
+                                    Send All
+                                </Button>
+                            </div>
+                            <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                                {outgoingFiles.map(file => {
+                                    const progress = sendProgress[file.name] || 0;
+                                    return (
+                                        <div key={file.name} className="flex items-center gap-3 p-3 border rounded-lg bg-primary/10 justify-end">
+                                             <div className="flex-1 min-w-0 order-2 text-right">
+                                                <p className="font-medium truncate text-sm">{file.name}</p>
+                                                <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+                                                {progress > 0 && progress < 100 && (
+                                                    <Progress value={progress} className="h-2 mt-1" />
+                                                )}
+                                            </div>
+                                            <FileIcon className="h-8 w-8 text-primary flex-shrink-0 order-1" />
+                                            <div className="flex items-center gap-2 order-3">
+                                                {progress === 100 ? (
+                                                    <Check className="h-5 w-5 text-green-500" />
+                                                ) : progress > 0 ? (
+                                                    <span className="text-sm font-medium text-primary">{Math.round(progress)}%</span>
+                                                ) : (
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => removeOutgoingFile(file.name)}
+                                                        aria-label={`Remove ${file.name}`}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
             </CardContent>
         </Card>
     );
