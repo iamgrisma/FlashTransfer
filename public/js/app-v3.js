@@ -187,38 +187,58 @@ async function waitForAnswer(code) {
         try {
             const data = await getSession(code)
             if (data && data.p2p_answer) {
+                // We got an answer!
                 clearInterval(pollInterval)
-                showStatus(spinner('Connecting to peer...'))
+                showStatus(spinner('Connecting P2P...'))
                 const answer = JSON.parse(data.p2p_answer)
                 state.peer.signal(answer)
             }
         } catch (e) {
-            // Only log real errors, not 404s while waiting
-            if (!e.message.includes('Session not found')) {
-                console.error('Polling error:', e)
+            console.error('Polling error:', e)
+            // If it's a critical error (like signal failure), show it
+            if (e.message.includes('signal') || e.message.includes('JSON')) {
+                clearInterval(pollInterval)
+                showStatus(`
+                    <div class="bg-red-50 p-6 rounded-xl border border-red-200 text-center">
+                        <p class="text-red-600 font-bold mb-2">Connection Error</p>
+                        <p class="text-sm text-red-800">${e.message}</p>
+                        <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg text-sm">Retry</button>
+                    </div>
+                 `)
             }
         }
-    }, 2000)
+    }, 2000) // Poll every 2s
 }
 
 // Join connection
 window.joinConnection = async () => {
     const input = document.getElementById('joinInput').value.trim()
     if (!input) {
-        showToast('Please enter a code')
+        showToast('Please enter a code or link')
         return
     }
 
+    // Extract code from URL or use as-is
     const code = extractCode(input)
+
     showStatus(spinner('Joining connection...'))
 
     try {
+        // Get offer from server
         const offerData = await getSession(code)
 
+        // Setup peer
         state.peer = await initP2P(false, (peer) => {
             setupPeerListeners(peer)
         })
 
+        // Join with offer
+        await joinOffer(state.peer, offerData)
+
+        state.connectionCode = code
+        state.isHost = false
+
+        // Join with offer
         await joinOffer(state.peer, offerData)
 
         state.connectionCode = code
@@ -226,16 +246,12 @@ window.joinConnection = async () => {
 
         hideStatus()
         showStatus(spinner('Connecting to peer...'))
+        // Connection will complete when peer.on('connect') fires
 
     } catch (error) {
         hideStatus()
         showToast('Failed to join: ' + error.message)
-        // If auto-joined failed, show landing
-        if (!document.getElementById('view-receive').classList.contains('hidden')) {
-            // stay on receive view
-        } else {
-            switchView('landing')
-        }
+        console.error(error)
     }
 }
 
@@ -250,12 +266,15 @@ function extractCode(input) {
 
 function checkURLForCode() {
     const hash = window.location.hash.slice(1)
+    const pathCode = window.location.pathname.split('/').pop()
+
     if (hash && hash.length === 5) {
-        document.getElementById('joinInput').value = hash // Pre-fill
+        document.getElementById('joinInput').value = hash
         joinConnection() // Auto-join
-        return true
+    } else if (pathCode && pathCode.length === 5) {
+        document.getElementById('joinInput').value = pathCode
+        joinConnection() // Auto-join
     }
-    return false
 }
 
 function setupPeerListeners(peer) {
