@@ -1,3 +1,5 @@
+import { sendSignalAnswer } from './api.js?v=premium'
+
 // P2P connection using simple-peer
 // SimplePeer is loaded globally via index.html (window.SimplePeer)
 

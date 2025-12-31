@@ -1,3 +1,7 @@
+import { createOffer, joinOffer, initP2P, setupPeerListeners } from './p2p.js?v=premium'
+import { createSession, getSession, sendFileMetadata } from './api.js?v=premium'
+import { showStatus, hideStatus, showToast, formatBytes } from './utils.js?v=premium'
+
 // Main app state
 const state = {
     peer: null,
