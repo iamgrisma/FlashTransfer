@@ -16,7 +16,7 @@ export function showStatus(message) {
     const status = document.getElementById('status')
     const statusText = document.getElementById('statusText')
 
-    statusText.textContent = message
+    statusText.innerHTML = message
     status.classList.remove('hidden')
 }
 
