@@ -1,6 +1,6 @@
 // P2P connection using simple-peer
-// Import from CDN
-import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1'
+// SimplePeer is loaded globally via index.html (window.SimplePeer)
+
 
 export async function initP2P(initiator, onReady) {
     const peer = new SimplePeer({

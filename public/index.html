@@ -217,6 +217,13 @@
         </div>
     </div>
 
+    <!-- Polyfills for simple-peer -->
+    <script>
+        window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); } };
+        window.global = window;
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+
     <script type="module" src="/js/app.js"></script>
 
 </body>
