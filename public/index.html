@@ -323,11 +323,11 @@
         </div>
     </div>
 
-    <!-- Polyfills & Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/buffer/6.0.3/buffer.min.js"></script>
+    <script src="https://bundle.run/buffer@6.0.3"></script>
     <script>
-        window.Buffer = window.buffer.Buffer;
-        window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); } };
+        window.Buffer = window.buffer?.Buffer || window.Buffer;
+        console.log('Buffer Polyfill Status:', !!window.Buffer);
+        window.process = { env: { NODE_ENV: 'production' }, nextTick: function (fn) { setTimeout(fn, 0); }, browser: true };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
     <script type="module" src="/js/app.js?v=chat-v2"></script>
